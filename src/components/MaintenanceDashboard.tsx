@@ -35,7 +35,7 @@ import Webcam from 'react-webcam';
 import { MaintenanceTicket, MaintenanceSeverity, MaintenanceStatus, UserAccount } from '../types';
 import { db, isSuperUserEmail } from '../lib/auth';
 import { collection, getDocs, doc, setDoc, updateDoc } from 'firebase/firestore';
-import { saveRecord, getRecord, syncAllRecordsToLocal, deleteRecord } from '../lib/db';
+import { saveRecord, syncAllRecordsToLocal, deleteRecord, clearFieldsWithAliases } from '../lib/db';
 import { compressImage } from '../lib/utils';
 import { uploadImageToStorage } from '../lib/storage';
 
@@ -231,14 +231,13 @@ export default function MaintenanceDashboard({ currentUser, onBackToHome }: Main
       if (ticket.source === 'pre_checkin' || ticket.source === 'post_checkout') {
         // This ticket doesn't have its own maintenance_tickets doc — it's
         // synthesized every load from the maintenanceNeeded/maintenanceNotes
-        // fields on the underlying pre_checkin/post_checkout report. Clear
-        // those fields on the real report (merge, so the rest of the report
-        // is untouched) so there is genuinely nothing left to synthesize it
-        // from next time, instead of just hiding the synthesized row.
-        const existing = (await getRecord(ticket.source, ticket.bookingId!)) ||
-          JSON.parse(localStorage.getItem(`${ticket.source}_${ticket.bookingId}`) || 'null') || {};
-        await saveRecord(ticket.source, ticket.bookingId!, {
-          ...existing,
+        // fields on the underlying pre_checkin/post_checkout report. That
+        // report can exist under several alias document ids for the same
+        // booking (bookingId, confirmation code, name_<guest>, unit_<unit>_
+        // <date>...), so clear those fields on every alias — not just the
+        // one named exactly by bookingId — or an un-cleared alias can bring
+        // the synthesized ticket back.
+        await clearFieldsWithAliases(ticket.source, ticket.bookingId!, {
           maintenanceNeeded: false,
           maintenanceNotes: ''
         });

@@ -335,3 +335,38 @@ export const deleteRecordWithAliases = async (collectionName: string, id: string
     if (bookingId) localStorage.removeItem(`${collectionName}_${bookingId}`);
   } catch (e) {}
 };
+
+/**
+ * Merges `fields` into every document in `collectionName` whose own id is
+ * `bookingId`, plus every document whose `bookingId` field equals it.
+ *
+ * pre_checkin/post_checkout reports get saved under several document ids for
+ * the same booking (the bookingId itself, the confirmation code, a reservation
+ * id, name_<guestName>, unit_<unitName>_<date> — see PostCheckOutFlow /
+ * PreCheckInFlow), all with identical content. A real hard-delete of one
+ * field (e.g. clearing minibarConsumed when a Minibar record is deleted) has
+ * to land on every one of those alias copies, or the un-cleared aliases keep
+ * the old data alive and it can resurface the next time they're read.
+ */
+export const clearFieldsWithAliases = async (collectionName: string, bookingId: string, fields: Record<string, any>) => {
+  if (!bookingId) return;
+  const idsToUpdate = new Set<string>([bookingId]);
+  try {
+    const q = query(collection(db, collectionName), where('bookingId', '==', bookingId));
+    const snapshot = await withTimeout(getDocs(q), 8000);
+    snapshot.docs.forEach(d => idsToUpdate.add(d.id));
+  } catch (err) {
+    console.warn(`Failed to look up alias docs for ${collectionName}/${bookingId}:`, err);
+  }
+
+  await Promise.all(Array.from(idsToUpdate).map(async (id) => {
+    try {
+      const existing = await getRecord(collectionName, id);
+      if (existing) {
+        await saveRecord(collectionName, id, { ...existing, ...fields });
+      }
+    } catch (e) {
+      console.warn(`Failed to clear fields on ${collectionName}/${id}:`, e);
+    }
+  }));
+};

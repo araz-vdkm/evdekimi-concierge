@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Coffee, ChevronLeft, Camera, Plus, Save, Trash2, Calendar, FileText, CheckCircle2, TrendingUp, TrendingDown, ArrowRight , Download, Pencil, X} from 'lucide-react';
 import { getAccessToken, getGoogleToken, db, isSuperUserEmail } from "../lib/auth";
-import { saveRecord, deleteRecord } from '../lib/db';
+import { saveRecord, deleteRecord, clearFieldsWithAliases } from '../lib/db';
 import { collection, getDocs, query, orderBy, limit } from 'firebase/firestore';
 import { MinibarRecord, MinibarItem } from '../types';
 import { isReservationAssignedToUser } from '../lib/villaMatcher';
@@ -352,18 +352,42 @@ export default function MinibarDashboard({ currentUser, onBackToHome }: MinibarD
   
   const handleDeleteReport = async (report: any) => {
     try {
+      const bookingKey = report.bookingId || report.id;
       if (report.manualLogs) {
         for (const log of report.manualLogs) {
           await deleteRecord('minibar', log.id);
         }
       }
-      if (report.preCheckIn) {
-        const updatedPre = { ...report.preCheckIn, minibarStock: [], minibarConsumed: [], totalMinibar: 0 };
-        await saveRecord('pre_checkin', report.bookingId || report.id, updatedPre);
+      // PostCheckOutFlow (and the QA test suite) also write a standalone
+      // "shadow" receipt doc into this same 'minibar' collection at a fixed
+      // id (minibar_<bookingId>) whenever a post-checkout report has minibar
+      // consumption. fetchTrackingReports deliberately skips it when building
+      // manualLogs above (source === 'post_checkout') to avoid double-counting
+      // against postCheckOut.minibarConsumed — but that means it never gets
+      // hard-deleted unless we do it explicitly here too, or it lingers in
+      // Firestore forever even after this card disappears from the table.
+      if (bookingKey) {
+        await deleteRecord('minibar', `minibar_${bookingKey}`);
       }
-      if (report.postCheckOut) {
-        const updatedPost = { ...report.postCheckOut, minibarConsumed: [], totalMinibar: 0 };
-        await saveRecord('post_checkout', report.bookingId || report.id, updatedPost);
+      // pre_checkin/post_checkout reports get saved under several alias document
+      // ids for the same booking (bookingId, confirmation code, name_<guest>,
+      // unit_<unit>_<date>...) — clearing only the doc named exactly `bookingKey`
+      // leaves the other aliases with the old minibar data intact, and whichever
+      // one fetchTrackingReports happens to read last can bring the row back.
+      // clearFieldsWithAliases finds and clears every one of them.
+      if (report.preCheckIn && bookingKey) {
+        await clearFieldsWithAliases('pre_checkin', bookingKey, {
+          minibarStock: [],
+          minibarConsumed: [],
+          totalMinibar: 0
+        });
+      }
+      if (report.postCheckOut && bookingKey) {
+        await clearFieldsWithAliases('post_checkout', bookingKey, {
+          minibarConsumed: [],
+          totalMinibar: 0,
+          totalMinibarAmount: 0
+        });
       }
       // Manual logs are hard-deleted above and the minibarConsumed/minibarStock
       // fields on the pre_checkin/post_checkout docs are cleared to empty right
