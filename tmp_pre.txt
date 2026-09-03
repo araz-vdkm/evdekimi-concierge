@@ -1,0 +1,300 @@
+import React, { useState, useRef, useCallback, useEffect } from 'react';
+import Webcam from 'react-webcam';
+import { Camera, CheckSquare, CheckCircle2, ChevronRight, X, Home as HomeIcon, Droplets, BedDouble, Bath, Upload, RefreshCcw, ChevronLeft, Coffee } from 'lucide-react';
+import { saveRecord } from '../lib/db';
+import { compressImage } from '../lib/utils';
+import { uploadImageToStorage } from '../lib/storage';
+
+interface PreCheckInFlowProps {
+  onComplete: () => void;
+  initialBooking?: any;
+}
+
+
+const MINIBAR_ITEMS = [
+  { name: 'Organique Water', location: 'Fridge', price: 35000 },
+  { name: 'Pocari Sweat', location: 'Fridge', price: 25000 },
+  { name: 'Soda Water', location: 'Fridge', price: 25000 },
+  { name: 'Buavita Juice', location: 'Fridge', price: 25000 },
+  { name: 'Coca-Cola', location: 'Fridge', price: 25000 },
+  { name: 'Coca-Cola Zero', location: 'Fridge', price: 25000 },
+  { name: 'UC 1000 Vitamin C', location: 'Fridge', price: 30000 },
+  { name: 'Redbull', location: 'Fridge', price: 50000 },
+  { name: 'Snickers', location: 'Fridge', price: 30000 },
+  { name: 'Oatside Oatmilk', location: 'Fridge', price: 20000 },
+  { name: 'Bintang', location: 'Fridge', price: 50000 },
+  { name: 'Bali Hai', location: 'Fridge', price: 50000 },
+  { name: 'Kura Kura Hazy', location: 'Fridge', price: 90000 },
+  { name: 'Kura Kura Ale', location: 'Fridge', price: 90000 },
+  { name: 'Pringless', location: 'Shelf', price: 35000 },
+  { name: 'Roasted Peanut', location: 'Shelf', price: 25000 },
+  { name: 'Granobar', location: 'Shelf', price: 25000 },
+  { name: 'Oatside Cereal Bar', location: 'Shelf', price: 25000 },
+  { name: 'Roasted Almond', location: 'Shelf', price: 30000 },
+  { name: 'Salted Pistachio', location: 'Shelf', price: 35000 },
+  { name: 'Healthy Protein Bar', location: 'Shelf', price: 70000 },
+  { name: 'Mie Sedap Cup Noodle', location: 'Shelf', price: 35000 },
+];
+
+const STEPS_CONFIG = [
+  {
+    id: 'exterior',
+    title: 'Exterior, Garden & Pool',
+    icon: Droplets,
+    items: [
+      { id: 'garden', label: 'Garden Conditions', desc: 'Inspect overall landscaping, lawn condition, pathways, and outdoor cleanliness.', photoReq: '4 photos (different angles)', reqCount: 4 },
+      { id: 'poolClean', label: 'Pool Cleanness', desc: 'Verify water clarity, surface debris removal, and overall pool deck hygiene.', photoReq: '1 photo of pool condition', reqCount: 1 },
+      { id: 'poolSunbeds', label: 'Pool Sunbeds', desc: 'Inspect fabric, frames, and cushions for stains, dust, or moisture.', photoReq: '1 photo of sunbeds', reqCount: 1 },
+      { id: 'poolUmbrella', label: 'Pool Umbrella', desc: 'Open and inspect umbrella fabric, pole integrity, and cleanliness.', photoReq: '1 photo of umbrella', reqCount: 1 },
+    ]
+  },
+  {
+    id: 'indoor',
+    title: 'Indoor Living & Dining',
+    icon: HomeIcon,
+    items: [
+      { id: 'scuff', label: 'Scuff & Damage Tracking', desc: 'Inspect walls, furniture edges, baseboards, and artwork for pre-existing scuffs/wear.', photoReq: '1 photo per room showing wall/furniture condition', reqCount: 1 },
+      { id: 'utilities', label: 'Utilities & Appliances', desc: 'Test that TV turns on, A/C runs silently, and all light fixtures operate properly.', photoReq: '1 photo per room verifying active functionality', reqCount: 1 },
+      { id: 'climate', label: 'Climate Control', desc: 'Verify that the thermostat/AC is set to 22°C and functioning correctly.', photoReq: '1 photo per A/C unit displaying 22°C', reqCount: 1 },
+      { id: 'coffee', label: 'Coffee Station Setup', desc: 'Confirm descaled, clean, stocked with full set of capsules and sugar/sweetener.', photoReq: '1 photo of coffee machine & full capsule set', reqCount: 1 },
+      { id: 'kitchen', label: 'Kitchen Utensils', desc: 'Inspect drawers/cabinets for complete clean set of cutlery, cookware, dishware.', photoReq: '1 photo showing full utensil inventory', reqCount: 1 },
+    ]
+  },
+  {
+    id: 'bedroom',
+    title: 'Bedroom Inspection',
+    icon: BedDouble,
+    items: [
+      { id: 'bedding', label: 'Bedding & Presentation', desc: 'Check bed symmetry, smooth duvet, pillow alignment, clear space under bed, dust-free nightstands.', photoReq: '1 photo per bedroom of full bed staging', reqCount: 1 },
+      { id: 'utilities', label: 'A/C, TV & Lights', desc: 'Turn on bedroom TV, lights, and verify A/C operation.', photoReq: '1 photo per bedroom demonstrating working tech', reqCount: 1 },
+      { id: 'scuffs', label: 'Scuffs & Edges', desc: 'Check walls, wardrobe doors, and artwork.', photoReq: '1 photo per bedroom showing wall/edge conditions', reqCount: 1 },
+    ]
+  },
+  {
+    id: 'bathroom',
+    title: 'Bathroom & Plumbing',
+    icon: Bath,
+    items: [
+      { id: 'hygiene', label: 'Hygiene & Sanitation', desc: 'Check toilet inside/out, basin polish, shower glass clarity, neat towel placement.', photoReq: 'Photos of toilet, basin/mirror/shower, towel placement', reqCount: 3 },
+      { id: 'plumbing', label: 'Plumbing & Water Flow', desc: 'Turn on hot water to confirm delivery, pressure, and clear drain speed.', photoReq: '1 photo per bathroom showing running water', reqCount: 1 },
+      { id: 'consumables', label: 'Consumables', desc: 'Confirm full stock of toilet paper, tissue boxes, and hygiene refills.', photoReq: '1 photo per bathroom verifying stock', reqCount: 1 },
+      { id: 'toiletries', label: 'Toiletries & Amenities', desc: 'Verify full presentation set of luxury soaps, body wash, shampoo, conditioner, lotion.', photoReq: '1 photo per bathroom showing arrangement', reqCount: 1 },
+      { id: 'towels', label: 'Towel Set Verification', desc: 'Confirm full set of bath/hand towels, face cloths, bath mats per brand standards.', photoReq: '1 photo per bathroom displaying setup', reqCount: 1 },
+    ]
+  }
+];
+
+type SectionData = Record<string, { photos: string[] }>;
+
+export default function PreCheckInFlow({ onComplete, initialBooking }: PreCheckInFlowProps) {
+  const [step, setStep] = useState<number>(0);
+  const [data, setData] = useState<Record<string, SectionData>>({
+    exterior: {},
+    indoor: {},
+    bedroom: {},
+    bathroom: {}
+  });
+  
+  const [maintenanceNeeded, setMaintenanceNeeded] = useState(false);
+  const [minibarPhoto, setMinibarPhoto] = useState<string | null>(null);
+  const [minibarConsumed, setMinibarConsumed] = useState<Record<string, number>>({});
+  const [activeMinibarCamera, setActiveMinibarCamera] = useState(false);
+  const [maintenanceNotes, setMaintenanceNotes] = useState('');
+  const [signature, setSignature] = useState('');
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [activeCamera, setActiveCamera] = useState<{sectionId: string, itemId: string} | null>(null);
+  const webcamRef = useRef<Webcam>(null);
+
+  const capturePhoto = useCallback(() => {
+    if (webcamRef.current && activeCamera) {
+      const imageSrc = webcamRef.current.getScreenshot();
+      if (imageSrc) {
+        setData(prev => {
+          const itemData = prev[activeCamera.sectionId]?.[activeCamera.itemId] || { photos: [] };
+          return {
+            ...prev,
+            [activeCamera.sectionId]: {
+              ...prev[activeCamera.sectionId],
+              [activeCamera.itemId]: {
+                ...itemData,
+                photos: [...itemData.photos, imageSrc]
+              }
+            }
+          };
+        });
+        setActiveCamera(null);
+      }
+    }
+  }, [webcamRef, activeCamera]);
+
+  const handlePhotoAdd = async (sectionId: string, itemId: string, e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    const newPhotos: string[] = [];
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      const dataUrl = await new Promise<string>((resolve) => {
+        const reader = new FileReader();
+        reader.onload = (ev) => resolve(ev.target?.result as string);
+        reader.readAsDataURL(file);
+      });
+      newPhotos.push(dataUrl);
+    }
+
+    setData(prev => {
+      const itemData = prev[sectionId]?.[itemId] || { photos: [] };
+      return {
+        ...prev,
+        [sectionId]: {
+          ...prev[sectionId],
+          [itemId]: {
+            ...itemData,
+            photos: [...itemData.photos, ...newPhotos]
+          }
+        }
+      };
+    });
+  };
+
+    const handleMinibarPhotoAdd = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0];
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setMinibarPhoto(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const captureMinibarPhoto = () => {
+    if (webcamRef.current) {
+      const imageSrc = webcamRef.current.getScreenshot();
+      if (imageSrc) {
+        setMinibarPhoto(imageSrc);
+        setActiveMinibarCamera(false);
+      }
+    }
+  };
+
+const handleRemovePhoto = (sectionId: string, itemId: string, photoIndex: number) => {
+    setData(prev => {
+      const itemData = prev[sectionId]?.[itemId];
+      if (!itemData) return prev;
+      
+      const newPhotos = [...itemData.photos];
+      newPhotos.splice(photoIndex, 1);
+      
+      return {
+        ...prev,
+        [sectionId]: {
+          ...prev[sectionId],
+          [itemId]: {
+            ...itemData,
+            photos: newPhotos
+          }
+        }
+      };
+    });
+  };
+
+  const handleSubmit = async () => {
+    if (!signature.trim()) return;
+    setIsProcessing(true);
+
+    try {
+      let currentUser = 'Unknown User';
+      try {
+        const userStr = localStorage.getItem('conciergeUser');
+        if (userStr) {
+          const parsed = JSON.parse(userStr);
+          currentUser = parsed.username || parsed.name || 'Unknown User';
+        }
+      } catch(e) {}
+      
+      const bookingId = initialBooking?.id || `pre_checkin_${Date.now()}`;
+
+      const report = {
+        type: 'pre_checkin',
+        timestamp: new Date().toISOString(),
+        submittedBy: currentUser,
+        bookingId: bookingId,
+        guestName: initialBooking?.fullName || initialBooking?.guestName || 'Unknown',
+        unitName: initialBooking?.unitName || '',
+        complexName: initialBooking?.complexName || '',
+        checkInDate: initialBooking?.checkInDate || '',
+        checkOutDate: initialBooking?.checkOutDate || '',
+        data,
+        maintenanceNeeded,
+        maintenanceNotes,
+        signature
+      };
+      
+      // Upload minibar photo if data url
+      let uploadedMinibarPhoto = minibarPhoto;
+      if (minibarPhoto && minibarPhoto.startsWith('data:')) {
+        try {
+          const compressed = await compressImage(minibarPhoto, 1200, 1200, 0.85);
+          const path = `reports/pre_checkin/${bookingId}/minibar_photo.jpg`;
+          uploadedMinibarPhoto = await uploadImageToStorage(compressed, path);
+        } catch (e) {}
+      }
+
+      // Process and upload photos to Firebase Storage
+      const processedData: Record<string, Record<string, { photos: string[] }>> = {};
+      const uploadTasks: Promise<void>[] = [];
+      
+      for (const [sectionId, itemsObj] of Object.entries(data)) {
+        processedData[sectionId] = {};
+        for (const [itemId, itemData] of Object.entries(itemsObj)) {
+          processedData[sectionId][itemId] = { photos: [] };
+          (itemData.photos || []).forEach((photo, idx) => {
+             const task = (async () => {
+                const compressed = await compressImage(photo, 1200, 1200, 0.85);
+                const path = `reports/pre_checkin/${bookingId}/${sectionId}_${itemId}_${idx}.jpg`;
+                const url = await uploadImageToStorage(compressed, path);
+                processedData[sectionId][itemId].photos[idx] = url;
+             })();
+             uploadTasks.push(task);
+          });
+        }
+      }
+      await Promise.all(uploadTasks);
+
+      let processedSignature = report.signature;
+      
+      await saveRecord('pre_checkin', bookingId, {
+        ...report,
+        data: processedData,
+        signature: processedSignature,
+        lastEditedAt: new Date().toISOString()
+      });
+
+      if (maintenanceNeeded && (maintenanceNotes || '').trim()) {
+        const ticketId = `maint_pre_${bookingId}`;
+        await saveRecord('maintenance_tickets', ticketId, {
+          id: ticketId,
+          createdBy: currentUser,
+          createdAt: new Date().toISOString(),
+          villa: initialBooking?.complexName || initialBooking?.villa || 'Unknown Villa',
+          unit: initialBooking?.unitName || '',
+          description: maintenanceNotes.trim(),
+          status: 'Open',
+          severity: 'Medium',
+          bookingId: bookingId,
+          source: 'pre_checkin'
+        });
+      }
+
+      if (initialBooking?.id) {
+        localStorage.removeItem('draft_pre_checkin_' + initialBooking.id);
+      }
+
+      console.log('Inspection Report submitted successfully!');
+      onComplete();
+    } catch (error) {
+      console.warn('Error saving pre-checkin report:', error);
+      console.error('Failed to submit pre-checkin report');
+    } finally {
+      setIsProcessing(false);

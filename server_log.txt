@@ -1,0 +1,23 @@
+
+> react-example@0.0.0 dev
+> tsx server.ts
+
+Server running on port 3000
+[Sentinel] Synced 438 reservations at 2026-08-17T05:32:03.062Z
+[Sentinel] Synced 438 reservations at 2026-08-17T06:01:54.185Z
+[Sentinel] Synced 439 reservations at 2026-08-17T06:31:58.853Z
+6:31:58 AM [vite] (client) page reload server_log.txt
+6:38:35 AM [vite] (client) page reload test_firestore.cjs
+6:38:35 AM [vite] (client) page reload server_log.txt
+[Sentinel] Remote API returned status 502. Using fallback reservations.
+7:02:00 AM [vite] (client) page reload server_log.txt
+7:25:30 AM [vite] (client) page reload test_fetch.js
+7:25:30 AM [vite] (client) page reload server_log.txt
+7:29:48 AM [vite] (client) hmr update /src/components/UserManagement.tsx, /src/index.css
+7:29:48 AM [vite] (client) page reload server_log.txt
+7:29:55 AM [vite] (client) hmr update /src/App.tsx, /src/index.css
+7:29:55 AM [vite] (client) page reload server_log.txt
+7:30:07 AM [vite] (client) hmr update /src/App.tsx, /src/index.css
+7:30:07 AM [vite] (client) page reload server_log.txt
+7:30:45 AM [vite] (client) hmr update /src/components/UserManagement.tsx, /src/index.css
+7:30:45 AM [vite] (client) page reload server_log.txt
