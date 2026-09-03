@@ -1061,7 +1061,7 @@ const generateWithRetry = async (aiInstance: any, params: any, maxRetries = 5) =
       const prompt = `Extract passport details. Return missing fields as empty string.`;
 
       const response = await generateWithRetry(ai, {
-        model: 'gemini-2.5-flash',
+        model: 'gemini-3.6-flash',
         config: {
           responseMimeType: "application/json",
           responseSchema: {
