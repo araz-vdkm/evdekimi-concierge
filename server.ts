@@ -1061,7 +1061,7 @@ const generateWithRetry = async (aiInstance: any, params: any, maxRetries = 5) =
       const prompt = `Extract passport details. Return missing fields as empty string.`;
 
       const response = await generateWithRetry(ai, {
-        model: 'gemini-3.1-flash-lite',
+        model: 'gemini-2.5-flash',
         config: {
           responseMimeType: "application/json",
           responseSchema: {
@@ -1117,7 +1117,7 @@ ${JSON.stringify(answers, null, 2)}
 Return the upsell opportunities as a JSON object mapping each guest's fullName to a short string of 1-3 personalized upsell opportunities, strongly considering their gender, age, and answers. (e.g. { "John Doe": "Golf package, Premium Bar", "Jane Doe": "Spa day, High Tea" }). Return ONLY valid JSON, no markdown.`;
 
       const response = await generateWithRetry(ai, {
-        model: 'gemini-2.5-flash',
+        model: 'gemini-3.1-flash-lite',
         contents: prompt
       });
 
