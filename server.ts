@@ -60,7 +60,7 @@ function calculateLoyaltyStatus(passportNumber, currentGuests) {
 
 async function startServer() {
   const app = express();
-  const PORT = 9000;
+  const PORT = Number(process.env.PORT) || 9000;
 
   // Middleware to parse large JSON requests (for images)
   app.use(express.json({ limit: "50mb" }));
