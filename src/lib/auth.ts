@@ -1,11 +1,23 @@
 import { initializeApp } from "firebase/app";
-import { getAuth, signInWithPopup, GoogleAuthProvider, OAuthProvider, onAuthStateChanged, User, createUserWithEmailAndPassword, signInWithEmailAndPassword, sendEmailVerification, signOut } from "firebase/auth";
+import { getAuth, signInWithPopup, GoogleAuthProvider, OAuthProvider, onAuthStateChanged, User, createUserWithEmailAndPassword, signInWithEmailAndPassword, sendEmailVerification, signOut, setPersistence, browserLocalPersistence } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
 import firebaseConfig from "../../firebase-applet-config.json";
 
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
+
+// Defensive: Firebase's default persistence tries IndexedDB first
+// (indexedDBLocalPersistence). In some browsers/environments (Safari private
+// browsing, in-app WebViews like Instagram/LinkedIn, storage-restricted
+// contexts) IndexedDB itself throws (e.g. "Database is closing"), which
+// surfaces as a hard login failure. Explicitly using browserLocalPersistence
+// (localStorage-backed, no IndexedDB dependency) avoids that whole class of
+// failures for auth session storage.
+setPersistence(auth, browserLocalPersistence).catch((e) => {
+  console.warn('Failed to set browserLocalPersistence, falling back to SDK default:', e);
+});
+
 const firestoreDbId = (firebaseConfig as any).firestoreDatabaseId;
 export const db = firestoreDbId ? getFirestore(app, firestoreDbId) : getFirestore(app);
 export const storage = getStorage(app);
