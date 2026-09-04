@@ -557,83 +557,8 @@ const generateWithRetry = async (aiInstance: any, params: any, maxRetries = 5) =
   // Sentinel for Reservations
   let cachedReservations: any[] = [];
   let lastSyncTime: string | null = null;
+  let lastSyncError: string | null = null;
   let isSyncing = false;
-
-  const generateFallbackReservations = () => {
-    const today = new Date();
-    const formatDate = (offsetDays: number) => {
-      const d = new Date(today);
-      d.setDate(today.getDate() + offsetDays);
-      const year = d.getFullYear();
-      const month = String(d.getMonth() + 1).padStart(2, '0');
-      const day = String(d.getDate()).padStart(2, '0');
-      return `${year}-${month}-${day}`;
-    };
-
-    return [
-      {
-        id: "RES-801",
-        confirmationCode: "RES-801",
-        guestName: "Alexander Wright",
-        guestEmail: "alex.wright@example.com",
-        villa: "Bingin Cliff",
-        unitName: "Villa Sunset 1",
-        checkInDate: formatDate(0),
-        checkOutDate: formatDate(3),
-        guests: "2 Adults",
-        status: "Confirmed"
-      },
-      {
-        id: "RES-802",
-        confirmationCode: "RES-802",
-        guestName: "Sophia Martinez",
-        guestEmail: "sophia.m@example.com",
-        villa: "Canggu Beachfront",
-        unitName: "Ocean Deluxe 2",
-        checkInDate: formatDate(0),
-        checkOutDate: formatDate(4),
-        guests: "4 Adults",
-        status: "Confirmed"
-      },
-      {
-        id: "RES-803",
-        confirmationCode: "RES-803",
-        guestName: "Evelyn Taylor",
-        guestEmail: "evelyn.t@example.com",
-        villa: "Uluwatu Sanctuary",
-        unitName: "Suite 101",
-        checkInDate: formatDate(1),
-        checkOutDate: formatDate(5),
-        guests: "2 Adults",
-        status: "Confirmed"
-      },
-      {
-        id: "RES-804",
-        confirmationCode: "RES-804",
-        guestName: "David Chen",
-        guestEmail: "d.chen@example.com",
-        villa: "Seminyak Oasis",
-        unitName: "Villa Palms 3",
-        checkInDate: formatDate(-1),
-        checkOutDate: formatDate(0),
-        guests: "3 Adults",
-        status: "Confirmed"
-      },
-      {
-        id: "RES-805",
-        confirmationCode: "RES-805",
-        guestName: "Elena Rostova",
-        guestEmail: "elena.rostova@example.com",
-        villa: "Dragon Stone Villas",
-        complexName: "Dragon Stone Villas",
-        unitName: "DragonStone V1",
-        checkInDate: formatDate(0),
-        checkOutDate: formatDate(1),
-        guests: "2 Adults",
-        status: "Confirmed"
-      }
-    ];
-  };
 
   // Property normalizer for server-side reservation enrichment
   const normalizeReservationProperty = (r: any) => {
@@ -773,26 +698,17 @@ const generateWithRetry = async (aiInstance: any, params: any, maxRetries = 5) =
       if (response.ok) {
         const data = await response.json();
         const fetched = Array.isArray(data) ? data : (data.reservations || data.data || []);
-        if (fetched.length > 0) {
-          cachedReservations = fetched.map(normalizeReservationProperty);
-        } else if (cachedReservations.length === 0) {
-          cachedReservations = generateFallbackReservations().map(normalizeReservationProperty);
-        }
+        cachedReservations = fetched.map(normalizeReservationProperty);
         lastSyncTime = new Date().toISOString();
+        lastSyncError = null;
         console.log(`[Sentinel] Synced ${cachedReservations.length} reservations at ${lastSyncTime}`);
       } else {
-        console.warn(`[Sentinel] Remote API returned status ${response.status}. Using fallback reservations.`);
-        if (cachedReservations.length === 0) {
-          cachedReservations = generateFallbackReservations().map(normalizeReservationProperty);
-          lastSyncTime = new Date().toISOString();
-        }
+        lastSyncError = `Hospara API returned status ${response.status}`;
+        console.error(`[Sentinel] ${lastSyncError}. Reservations NOT updated (keeping last known cache of ${cachedReservations.length}).`);
       }
-    } catch (error) {
-      console.warn("[Sentinel] Connection error fetching reservations:", error);
-      if (cachedReservations.length === 0) {
-        cachedReservations = generateFallbackReservations().map(normalizeReservationProperty);
-        lastSyncTime = new Date().toISOString();
-      }
+    } catch (error: any) {
+      lastSyncError = error?.message || String(error);
+      console.error(`[Sentinel] Connection error fetching reservations: ${lastSyncError} (keeping last known cache of ${cachedReservations.length}).`);
     } finally {
       isSyncing = false;
     }
@@ -804,7 +720,7 @@ const generateWithRetry = async (aiInstance: any, params: any, maxRetries = 5) =
   syncReservations();
 
   app.get("/api/debug-complexes", async (req, res) => {
-      res.json(cachedReservations);
+      res.json({ cachedReservations, lastSyncTime, lastSyncError, isSyncing });
   });
 
   // GET /api/reservations
@@ -821,6 +737,7 @@ const generateWithRetry = async (aiInstance: any, params: any, maxRetries = 5) =
       
       res.json({
         lastSyncTime,
+        lastSyncError,
         reservations: cachedReservations
       });
     } catch (error: any) {
