@@ -30,7 +30,9 @@ export let KNOWN_PROPERTY_MAPPINGS: { pattern: RegExp; complex: string; unitPref
   
   // Sacred Jungle Villas (Phase 1 & 2)
   { pattern: /SCJ[-_ ]*0*([1-3])V/i, complex: "Sacred Jungle Villas", unitPrefix: "SJ 1 Villa " },
-  { pattern: /SCJ[-_ ]*0*([4-6])V/i, complex: "Sacred Jungle Villas 2", unitPrefix: "SJ 2 Villa " },
+  { pattern: /SCJ[-_ ]*0*4V/i, complex: "Sacred Jungle Villas", unit: "SJ 2 Villa 4 (2BDr)" },
+  { pattern: /SCJ[-_ ]*0*5V/i, complex: "Sacred Jungle Villas", unit: "SJ 2 Villa 5 (3BDr)" },
+  { pattern: /SCJ[-_ ]*0*6V/i, complex: "Sacred Jungle Villas", unit: "SJ 2 Villa 6 (1BDr)" },
   
   // Sacred Jungle Suites / Apartments
   { pattern: /SCJ[-_ ]*0*1A/i, complex: "Sacred Jungle Suites", unit: "SJ Apart 1 (Mezanine)" },
