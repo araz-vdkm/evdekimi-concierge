@@ -8,8 +8,9 @@ import PreCheckInFlow from './components/PreCheckInFlow';
 import PostCheckOutFlow from './components/PostCheckOutFlow';
 import SurveyFlow from './components/SurveyFlow';
 import MaintenanceDashboard from './components/MaintenanceDashboard';
+import UpsellDashboard from './components/UpsellDashboard';
 import QATestingSuite from './components/QATestingSuite';
-import { Hotel, LogOut, LayoutDashboard, UserPlus, Home as HomeIcon, ShieldCheck, UserCheck, Key, RefreshCw, Menu, X, Users, Wrench, Coffee, Activity, FlaskConical } from 'lucide-react';
+import { Hotel, LogOut, LayoutDashboard, UserPlus, Home as HomeIcon, ShieldCheck, UserCheck, Key, RefreshCw, Menu, X, Users, Wrench, Coffee, Activity, FlaskConical, Sparkles } from 'lucide-react';
 import SignIn from './components/SignIn';
 import Register from './components/Register';
 import UserManagement from './components/UserManagement';
@@ -170,7 +171,7 @@ export default function App() {
     return () => window.removeEventListener('refresh-data', handleRefresh);
   }, []);
   
-  const [currentView, setCurrentView] = useState<'home' | 'checkin' | 'pre_checkin' | 'post_checkout' | 'dashboard' | 'usermanagement' | 'maintenance' | 'minibar' | 'qatesting'>('home');
+  const [currentView, setCurrentView] = useState<'home' | 'checkin' | 'pre_checkin' | 'post_checkout' | 'dashboard' | 'usermanagement' | 'maintenance' | 'minibar' | 'upsell' | 'qatesting'>('home');
   const [simulatedUser, setSimulatedUser] = useState<UserAccount | null>(null);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isGlobalRefreshing, setIsGlobalRefreshing] = useState(false);
@@ -290,6 +291,8 @@ export default function App() {
   const effectiveUser = simulatedUser || currentUser;
   const isAdmin = effectiveUser?.role === 'admin';
   const isSupervisor = effectiveUser?.role === 'supervisor';
+  const isFrontdesk = effectiveUser?.role === 'frontdesk';
+  const canSeeUpsell = isAdmin || isFrontdesk;
   const isSuperuser = isSuperUserEmail(effectiveUser?.email);
 
   const isSurveyRoute = window.location.hash.startsWith('#/survey/');
@@ -306,8 +309,10 @@ export default function App() {
       }
     } else if (!isAdmin && (currentView === 'dashboard' || currentView === 'usermanagement' || currentView === 'qatesting')) {
       setCurrentView('home');
+    } else if (currentView === 'upsell' && !canSeeUpsell) {
+      setCurrentView('home');
     }
-  }, [isAdmin, isSupervisor, currentView]);
+  }, [isAdmin, isSupervisor, canSeeUpsell, currentView]);
 
   if (isAuthLoading) {
     return (
@@ -417,6 +422,19 @@ export default function App() {
             <Coffee className={`w-4 h-4 ${currentView === 'minibar' ? 'text-white' : 'text-emerald-400'}`} />
             <span className="hidden sm:inline">{isSupervisor ? 'Minibar Manual Entry' : 'Minibar'}</span>
           </button>
+          {canSeeUpsell && (
+            <button
+              onClick={() => setCurrentView('upsell')}
+              className={`hidden sm:flex items-center gap-1.5 shrink-0 transition-colors px-3 py-1.5 rounded-lg border text-sm font-semibold ${
+                currentView === 'upsell'
+                  ? 'bg-violet-600 text-white border-violet-500 shadow-xs'
+                  : 'bg-slate-800 text-slate-200 hover:text-white hover:bg-slate-700 border-slate-700'
+              }`}
+            >
+              <Sparkles className={`w-4 h-4 ${currentView === 'upsell' ? 'text-white' : 'text-violet-400'}`} />
+              <span className="hidden sm:inline">Upsell</span>
+            </button>
+          )}
           {isAdmin && (
             <button
               onClick={() => setCurrentView('qatesting')}
@@ -487,6 +505,14 @@ export default function App() {
                     >
                       <Coffee className={`w-5 h-5 ${currentView === 'minibar' ? 'text-blue-600' : 'text-emerald-500'}`} /> Minibar
                     </button>
+                    {canSeeUpsell && (
+                      <button
+                        onClick={() => { setCurrentView('upsell'); setIsMenuOpen(false); }}
+                        className={`w-full text-left px-4 py-3 flex items-center gap-3 hover:bg-slate-50 transition-colors ${currentView === 'upsell' ? 'text-blue-600 font-bold' : 'text-slate-700 font-medium'}`}
+                      >
+                        <Sparkles className={`w-5 h-5 ${currentView === 'upsell' ? 'text-blue-600' : 'text-violet-500'}`} /> Upsell Opportunities
+                      </button>
+                    )}
                   </>
                 )}
                 {isAdmin && (
@@ -567,6 +593,7 @@ export default function App() {
         {currentView === 'usermanagement' && isAdmin && <UserManagement currentUser={effectiveUser || undefined} onNavigateQA={() => setCurrentView('qatesting')} />}
         {currentView === 'maintenance' && <MaintenanceDashboard currentUser={effectiveUser} onBackToHome={() => setCurrentView('home')} />}
         {currentView === 'minibar' && <MinibarDashboard currentUser={effectiveUser} onBackToHome={() => setCurrentView('home')} />}
+        {currentView === 'upsell' && canSeeUpsell && <UpsellDashboard currentUser={effectiveUser} onBackToHome={() => setCurrentView('home')} />}
         {currentView === 'qatesting' && isAdmin && (
           <QATestingSuite
             currentUser={effectiveUser}
