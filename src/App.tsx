@@ -338,7 +338,15 @@ export default function App() {
       return (
         <Register 
           onBack={() => { setShowRegister(false); setPendingSocialUser(null); }} 
-          onComplete={() => { setShowRegister(false); setPendingSocialUser(null); }} 
+          onComplete={(user) => {
+            setShowRegister(false);
+            setPendingSocialUser(null);
+            if (user) {
+              setCurrentUser(user);
+              setNeedsAuth(false);
+              setToken('dummy-token');
+            }
+          }}
           pendingSocialUser={pendingSocialUser}
         />
       );

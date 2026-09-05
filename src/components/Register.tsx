@@ -7,7 +7,7 @@ import { saveRecord, getRecord } from '../lib/db';
 import PrivacyPolicyModal from './PrivacyPolicyModal';
 import TermsOfServiceModal from './TermsOfServiceModal';
 
-export default function Register({ onBack, onComplete, pendingSocialUser }: { onBack: () => void, onComplete: () => void, pendingSocialUser?: any }) {
+export default function Register({ onBack, onComplete, pendingSocialUser }: { onBack: () => void, onComplete: (user?: any) => void, pendingSocialUser?: any }) {
   const [socialUser, setSocialUser] = useState<any>(pendingSocialUser || null);
   const [isPrivacyOpen, setIsPrivacyOpen] = useState(false);
   const [isTermsOpen, setIsTermsOpen] = useState(false);
@@ -100,7 +100,7 @@ export default function Register({ onBack, onComplete, pendingSocialUser }: { on
         }
         localStorage.setItem('conciergeAuth', 'oauth');
         localStorage.setItem('conciergeUser', JSON.stringify(existingUserData));
-        onComplete();
+        onComplete(existingUserData);
         return;
       }
       
@@ -157,7 +157,7 @@ export default function Register({ onBack, onComplete, pendingSocialUser }: { on
       if (isSuperUser) {
         localStorage.setItem('conciergeAuth', 'oauth');
         localStorage.setItem('conciergeUser', JSON.stringify(newUserData));
-        onComplete();
+        onComplete(newUserData);
       } else {
         // Clear any lingering session cache to ensure pending user cannot bypass
         localStorage.removeItem('conciergeAuth');
