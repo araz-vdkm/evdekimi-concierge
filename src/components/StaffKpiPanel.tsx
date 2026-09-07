@@ -3,6 +3,7 @@ import { collection, onSnapshot } from 'firebase/firestore';
 import { db, getAccessToken, getGoogleToken } from '../lib/auth';
 import { UserAccount } from '../types';
 import { isReservationAssignedToUser } from '../lib/villaMatcher';
+import { normalizeActiveReservations } from '../lib/reservationUtils';
 import {
   RefreshCcw, UserCheck, ClipboardCheck, ClipboardList, ChevronDown, ChevronUp,
   AlertTriangle, Info
@@ -35,6 +36,7 @@ interface Reservation {
   villa?: string;
   checkInDate?: string;
   checkOutDate?: string;
+  status?: string;
 }
 
 type KpiPeriod = 'today' | '7d' | '30d';
@@ -156,6 +158,10 @@ export default function StaffKpiPanel({ currentUser }: StaffKpiPanelProps) {
 
   const { start, end } = useMemo(() => rangeForPeriod(period), [period]);
 
+  // Confirmed-only, deduplicated - matches what the Operations Board (Home.tsx)
+  // treats as real bookings, so "should" counts here agree with it.
+  const activeReservations = useMemo(() => normalizeActiveReservations(reservations), [reservations]);
+
   const frontdeskUsers = useMemo(
     () => users.filter((u) => u.role === 'frontdesk' && ((u.assignedComplexes?.length || 0) > 0 || (u.assignedUnits?.length || 0) > 0)),
     [users]
@@ -168,7 +174,7 @@ export default function StaffKpiPanel({ currentUser }: StaffKpiPanelProps) {
       let totalDone = 0;
 
       for (const meta of TYPE_META) {
-        const assignedReservations = reservations.filter((r) => {
+        const assignedReservations = activeReservations.filter((r) => {
           if (!inRange(r[meta.dateField], start, end)) return false;
           return isReservationAssignedToUser(r, user);
         });
@@ -211,7 +217,7 @@ export default function StaffKpiPanel({ currentUser }: StaffKpiPanelProps) {
 
       return { user, perType, totalShould, totalDone };
     });
-  }, [frontdeskUsers, reservations, logs, start, end]);
+  }, [frontdeskUsers, activeReservations, logs, start, end]);
 
   const sortedStats = useMemo(() => {
     return [...staffStats].sort((a, b) => {

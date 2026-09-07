@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { collection, onSnapshot, getDocs } from 'firebase/firestore';
 import { db, getAccessToken, getGoogleToken } from '../lib/auth';
+import { normalizeActiveReservations } from '../lib/reservationUtils';
 import { saveRecord } from '../lib/db';
 import { UserAccount } from '../types';
 import {
@@ -47,6 +48,7 @@ interface PortfolioReservation {
   confirmationCode?: string;
   checkInDate?: string;
   checkOutDate?: string;
+  status?: string;
 }
 
 const DATE_FIELD_BY_TYPE: Record<ActivityType, 'checkInDate' | 'checkOutDate'> = {
@@ -252,12 +254,14 @@ export default function ReportingDashboard({ currentUser, onBackToHome }: Report
 
   // Portfolio-wide "should have happened" counts: every reservation (regardless
   // of who's assigned) whose relevant date falls inside the selected period.
+  const activeReservations = useMemo(() => normalizeActiveReservations(reservations), [reservations]);
+
   const shouldCounts = useMemo(() => {
     const counts: Record<ActivityType, number> = { registration: 0, pre_checkin: 0, post_checkout: 0 };
     if (!feedCoversRange || !rangeStart || !rangeEnd) return counts;
     (Object.keys(DATE_FIELD_BY_TYPE) as ActivityType[]).forEach((type) => {
       const field = DATE_FIELD_BY_TYPE[type];
-      counts[type] = reservations.filter((r) => {
+      counts[type] = activeReservations.filter((r) => {
         const raw = r[field];
         if (!raw) return false;
         const d = new Date(raw);
@@ -266,7 +270,7 @@ export default function ReportingDashboard({ currentUser, onBackToHome }: Report
       }).length;
     });
     return counts;
-  }, [reservations, rangeStart, rangeEnd, feedCoversRange]);
+  }, [activeReservations, rangeStart, rangeEnd, feedCoversRange]);
 
   const handleRefresh = () => {
     setIsRefreshing(true);
