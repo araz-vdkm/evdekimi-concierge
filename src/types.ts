@@ -59,6 +59,13 @@ export interface Guest {
   photo?: string;
   contactNumber?: string;
   contactEmail?: string;
+  // Upsell Discovery Quiz answers captured at check-in (used by
+  // Reporting > Upsell Analytics to correlate guest preferences with
+  // the upsells the AI suggested).
+  celebrationAnswer?: string;
+  interestsAnswer?: string;
+  dietaryAnswer?: string;
+  nextDestinationAnswer?: string;
 }
 
 export interface QuestionnaireAnswers {

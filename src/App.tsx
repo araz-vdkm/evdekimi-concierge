@@ -9,8 +9,9 @@ import PostCheckOutFlow from './components/PostCheckOutFlow';
 import SurveyFlow from './components/SurveyFlow';
 import MaintenanceDashboard from './components/MaintenanceDashboard';
 import UpsellDashboard from './components/UpsellDashboard';
+import ReportingDashboard from './components/ReportingDashboard';
 import QATestingSuite from './components/QATestingSuite';
-import { Hotel, LogOut, LayoutDashboard, UserPlus, Home as HomeIcon, ShieldCheck, UserCheck, Key, RefreshCw, Menu, X, Users, Wrench, Coffee, Activity, FlaskConical, Sparkles } from 'lucide-react';
+import { Hotel, LogOut, LayoutDashboard, UserPlus, Home as HomeIcon, ShieldCheck, UserCheck, Key, RefreshCw, Menu, X, Users, Wrench, Coffee, Activity, FlaskConical, Sparkles, BarChart3 } from 'lucide-react';
 import SignIn from './components/SignIn';
 import Register from './components/Register';
 import UserManagement from './components/UserManagement';
@@ -171,7 +172,7 @@ export default function App() {
     return () => window.removeEventListener('refresh-data', handleRefresh);
   }, []);
   
-  const [currentView, setCurrentView] = useState<'home' | 'checkin' | 'pre_checkin' | 'post_checkout' | 'dashboard' | 'usermanagement' | 'maintenance' | 'minibar' | 'upsell' | 'qatesting'>('home');
+  const [currentView, setCurrentView] = useState<'home' | 'checkin' | 'pre_checkin' | 'post_checkout' | 'dashboard' | 'usermanagement' | 'maintenance' | 'minibar' | 'upsell' | 'reporting' | 'qatesting'>('home');
   const [simulatedUser, setSimulatedUser] = useState<UserAccount | null>(null);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isGlobalRefreshing, setIsGlobalRefreshing] = useState(false);
@@ -307,7 +308,7 @@ export default function App() {
       if (!['home', 'minibar', 'pre_checkin', 'post_checkout', 'checkin'].includes(currentView)) {
         setCurrentView('home');
       }
-    } else if (!isAdmin && (currentView === 'dashboard' || currentView === 'usermanagement' || currentView === 'qatesting')) {
+    } else if (!isAdmin && (currentView === 'dashboard' || currentView === 'usermanagement' || currentView === 'qatesting' || currentView === 'reporting')) {
       setCurrentView('home');
     } else if (currentView === 'upsell' && !canSeeUpsell) {
       setCurrentView('home');
@@ -543,6 +544,12 @@ export default function App() {
                   >
                     <Activity className="w-5 h-5 text-indigo-500" /> QA System & Role Suite
                   </button>
+                  <button
+                    onClick={() => { setCurrentView('reporting'); setIsMenuOpen(false); }}
+                    className={`w-full text-left px-4 py-3 flex items-center gap-3 hover:bg-slate-50 transition-colors ${currentView === 'reporting' ? 'text-blue-600 font-bold' : 'text-slate-700 font-medium'}`}
+                  >
+                    <BarChart3 className="w-5 h-5 text-blue-500" /> Reporting
+                  </button>
                   </>
                 )}
 
@@ -578,7 +585,7 @@ export default function App() {
         {currentView === 'home' && <Home onSelectView={(view, data) => { setCurrentView(view); if (data) setCheckinData(data); else setCheckinData(null); }} isAdmin={isAdmin} userRole={effectiveUser?.role} currentUser={effectiveUser} />}
         {currentView === 'checkin' && (
           spreadsheetId ? (
-            <CheckInFlow spreadsheetId={spreadsheetId} onComplete={() => setCurrentView('home')} initialBooking={checkinData} />
+            <CheckInFlow spreadsheetId={spreadsheetId} onComplete={() => setCurrentView('home')} initialBooking={checkinData} currentUser={effectiveUser} />
           ) : (
             <div className="flex items-center justify-center flex-1 text-slate-500 flex-col gap-4">
               <div className="w-8 h-8 border-4 border-slate-300 border-t-slate-800 rounded-full animate-spin"></div>
@@ -602,6 +609,7 @@ export default function App() {
         {currentView === 'maintenance' && <MaintenanceDashboard currentUser={effectiveUser} onBackToHome={() => setCurrentView('home')} />}
         {currentView === 'minibar' && <MinibarDashboard currentUser={effectiveUser} onBackToHome={() => setCurrentView('home')} />}
         {currentView === 'upsell' && canSeeUpsell && <UpsellDashboard currentUser={effectiveUser} onBackToHome={() => setCurrentView('home')} />}
+        {currentView === 'reporting' && isAdmin && <ReportingDashboard currentUser={effectiveUser} onBackToHome={() => setCurrentView('home')} />}
         {currentView === 'qatesting' && isAdmin && (
           <QATestingSuite
             currentUser={effectiveUser}

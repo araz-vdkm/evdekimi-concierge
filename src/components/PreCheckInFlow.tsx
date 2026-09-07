@@ -2,6 +2,7 @@ import React, { useState, useRef, useCallback, useEffect } from 'react';
 import Webcam from 'react-webcam';
 import { Camera, CheckSquare, CheckCircle2, ChevronRight, X, Home as HomeIcon, Droplets, BedDouble, Bath, Upload, RefreshCcw, ChevronLeft, Coffee } from 'lucide-react';
 import { saveRecord } from '../lib/db';
+import { logActivity } from '../lib/activityLog';
 import { compressImage } from '../lib/utils';
 import { uploadImageToStorage } from '../lib/storage';
 
@@ -336,10 +337,29 @@ const handleRemovePhoto = (sectionId: string, itemId: string, photoIndex: number
       }
 
       console.log('Inspection Report submitted successfully!');
+      await logActivity({
+        type: 'pre_checkin',
+        status: 'success',
+        guestName: initialBooking?.guestName || report.guestName || '',
+        bookingId: bookingId,
+        complexName: initialBooking?.complexName || initialBooking?.villa || '',
+        unitName: initialBooking?.unitName || '',
+        submittedBy: currentUser?.username || currentUser?.email || 'Staff'
+      });
       onComplete();
-    } catch (error) {
+    } catch (error: any) {
       console.warn('Error saving pre-checkin report:', error);
       console.error('Failed to submit pre-checkin report');
+      await logActivity({
+        type: 'pre_checkin',
+        status: 'failed',
+        guestName: initialBooking?.guestName || '',
+        bookingId: initialBooking?.id || initialBooking?.confirmationCode || '',
+        complexName: initialBooking?.complexName || initialBooking?.villa || '',
+        unitName: initialBooking?.unitName || '',
+        submittedBy: currentUser?.username || currentUser?.email || 'Staff',
+        errorMessage: error?.message || String(error)
+      });
     } finally {
       setIsProcessing(false);
     }

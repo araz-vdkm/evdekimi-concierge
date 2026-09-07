@@ -2,6 +2,7 @@ import React, { useState, useRef, useCallback, useEffect } from 'react';
 import Webcam from 'react-webcam';
 import { Camera, CheckSquare, CheckCircle2, ChevronRight, X, Home as HomeIcon, Droplets, BedDouble, Bath, Upload, Coffee, RefreshCcw, ChevronLeft } from 'lucide-react';
 import { saveRecord } from '../lib/db';
+import { logActivity } from '../lib/activityLog';
 import { compressImage } from '../lib/utils';
 import { uploadImageToStorage } from '../lib/storage';
 
@@ -365,10 +366,29 @@ export default function PostCheckOutFlow({ onComplete, initialBooking, currentUs
       }
 
       console.log('Post Check-out report submitted successfully!');
+      await logActivity({
+        type: 'post_checkout',
+        status: 'success',
+        guestName: initialBooking?.guestName || report.guestName || '',
+        bookingId: bookingId,
+        complexName: initialBooking?.complexName || initialBooking?.villa || '',
+        unitName: initialBooking?.unitName || '',
+        submittedBy: currentUser?.username || currentUser?.email || 'Staff'
+      });
       onComplete();
-    } catch (error) {
+    } catch (error: any) {
       console.warn('Error saving post-checkout report:', error);
       console.error('Failed to submit post-checkout report');
+      await logActivity({
+        type: 'post_checkout',
+        status: 'failed',
+        guestName: initialBooking?.guestName || '',
+        bookingId: initialBooking?.id || initialBooking?.confirmationCode || '',
+        complexName: initialBooking?.complexName || initialBooking?.villa || '',
+        unitName: initialBooking?.unitName || '',
+        submittedBy: currentUser?.username || currentUser?.email || 'Staff',
+        errorMessage: error?.message || String(error)
+      });
     } finally {
       setIsProcessing(false);
     }

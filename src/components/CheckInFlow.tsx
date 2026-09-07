@@ -9,15 +9,17 @@ interface CheckInFlowProps {
   spreadsheetId: string;
   onComplete: () => void;
   initialBooking?: any;
+  currentUser?: any;
 }
 
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../lib/auth';
 import { saveRecord } from '../lib/db';
+import { logActivity } from '../lib/activityLog';
 import { compressImage, normalizeCountryName } from '../lib/utils';
 import { uploadImageToStorage } from '../lib/storage';
 
-export default function CheckInFlow({ spreadsheetId, onComplete, initialBooking }: CheckInFlowProps) {
+export default function CheckInFlow({ spreadsheetId, onComplete, initialBooking, currentUser }: CheckInFlowProps) {
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
   const [isProcessing, setIsProcessing] = useState(false);
   
@@ -288,7 +290,11 @@ export default function CheckInFlow({ spreadsheetId, onComplete, initialBooking 
           confirmationCode: initialBooking?.confirmationCode || initialBooking?.id || '',
           photo: uploadedPhotoUrl || '',
           contactNumber: booking.contactNumber,
-          contactEmail: booking.contactEmail
+          contactEmail: booking.contactEmail,
+          celebrationAnswer: answers.celebration || '',
+          interestsAnswer: answers.interests || '',
+          dietaryAnswer: answers.dietary || '',
+          nextDestinationAnswer: answers.nextDestination || ''
         };
 
         try {
@@ -347,10 +353,29 @@ export default function CheckInFlow({ spreadsheetId, onComplete, initialBooking 
       if (regPayload.unitName && regPayload.checkInDate) {
         await saveRecord('guest_reg', `unit_${regPayload.unitName.toLowerCase().trim()}_${regPayload.checkInDate}`, regPayload);
       }
+      await logActivity({
+        type: 'registration',
+        status: 'success',
+        guestName: regPayload.guestName,
+        bookingId: regPayload.bookingId || regPayload.confirmationCode,
+        complexName: regPayload.complexName,
+        unitName: regPayload.unitName,
+        submittedBy: currentUser?.username || currentUser?.email || 'Staff'
+      });
       onComplete();
-    } catch (err) {
+    } catch (err: any) {
       console.warn(err);
       console.error('Error saving check-in');
+      await logActivity({
+        type: 'registration',
+        status: 'failed',
+        guestName: initialBooking?.guestName || guestsDetails[0]?.fullName || '',
+        bookingId: initialBooking?.confirmationCode || initialBooking?.id || '',
+        complexName: booking.complexName,
+        unitName: booking.unitName,
+        submittedBy: currentUser?.username || currentUser?.email || 'Staff',
+        errorMessage: err?.message || String(err)
+      });
     } finally {
       setIsProcessing(false);
     }

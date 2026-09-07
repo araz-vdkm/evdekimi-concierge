@@ -251,7 +251,7 @@ export const syncAllRecordsToLocal = async () => {
  * Preserves user accounts and credentials.
  */
 export const purgeAllOperationalData = async (): Promise<{ deletedCounts: Record<string, number>; totalDeleted: number }> => {
-  const collectionsToPurge = ['pre_checkin', 'post_checkout', 'guest_reg', 'survey', 'guests', 'maintenance_tickets', 'minibar'];
+  const collectionsToPurge = ['pre_checkin', 'post_checkout', 'guest_reg', 'survey', 'guests', 'maintenance_tickets', 'minibar', 'activity_logs', 'upsell_items'];
   const deletedCounts: Record<string, number> = {};
   let totalDeleted = 0;
 
