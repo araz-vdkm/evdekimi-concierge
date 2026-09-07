@@ -1,4 +1,46 @@
+// Historical built-in role keys. UserAccount.role is now a free-form string
+// (any role key from the `roles` collection), but these three still exist as
+// literal values throughout the app for legacy, role-specific UI quirks that
+// predate the custom-roles system (e.g. Supervisor's simplified Minibar-only
+// label). New custom roles are just additional string values.
 export type UserRole = 'admin' | 'supervisor' | 'frontdesk';
+
+// Every top-level screen that can be shown or hidden per role from the
+// Role Management screen. Keep in sync with App.tsx's currentView values.
+export type ScreenKey =
+  | 'home'
+  | 'dashboard'
+  | 'usermanagement'
+  | 'maintenance'
+  | 'minibar'
+  | 'upsell'
+  | 'reporting'
+  | 'qatesting'
+  | 'rolemanagement';
+
+export type ScreenAccessLevel = 'none' | 'view' | 'full';
+
+// A role's document in the `roles` Firestore collection. `key` matches
+// UserAccount.role. The four built-in roles (admin/supervisor/frontdesk/
+// superuser) are seeded automatically on first load so nothing regresses;
+// from then on they're editable like any custom role.
+export interface RoleDefinition {
+  key: string;
+  label: string;
+  screens: Partial<Record<ScreenKey, ScreenAccessLevel>>;
+  // When true, a villa/unit assigned to one holder of this role is removed
+  // from the pool available to every other holder of an exclusive role -
+  // enforces "one property, one owner" for roles like Villa Manager. Roles
+  // that share coverage (e.g. Housekeeping) leave this off.
+  exclusiveVillaAssignment?: boolean;
+  // The superuser role bypasses every screen check regardless of `screens`
+  // (kept in sync with the SUPERUSER_EMAILS allowlist in lib/auth.ts, which
+  // stays as a permanent, code-level backstop).
+  isSuperuser?: boolean;
+  isBuiltIn?: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+}
 
 export type MaintenanceSeverity = 'High' | 'Medium' | 'Low';
 export type MaintenanceStatus = 'Open' | 'Closed';
@@ -36,7 +78,10 @@ export interface UserAccount {
   isBlocked?: boolean;
   isApproved?: boolean;
   username: string;
-  role: UserRole;
+  // Free-form role key referencing a `roles` collection document (see
+  // RoleDefinition below) - no longer limited to the historical UserRole
+  // union, so custom roles (Villa Manager, Housekeeping, ...) work here too.
+  role: string;
   title: string;
 }
 
