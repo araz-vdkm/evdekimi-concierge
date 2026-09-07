@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import UpsellAnalyticsPanel from './UpsellAnalyticsPanel';
+import StaffKpiPanel from './StaffKpiPanel';
 
 interface ReportingDashboardProps {
   currentUser?: UserAccount | null;
@@ -73,7 +74,7 @@ function toDateInputValue(d: Date): string {
 }
 
 export default function ReportingDashboard({ currentUser, onBackToHome }: ReportingDashboardProps) {
-  const [activeTab, setActiveTab] = useState<'activity' | 'upsell'>('activity');
+  const [activeTab, setActiveTab] = useState<'activity' | 'upsell' | 'staffkpi'>('activity');
   const [entries, setEntries] = useState<LogEntry[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -349,6 +350,14 @@ export default function ReportingDashboard({ currentUser, onBackToHome }: Report
         >
           Upsell Analytics
         </button>
+        <button
+          onClick={() => setActiveTab('staffkpi')}
+          className={`px-4 py-2 rounded-lg text-sm font-bold transition-colors ${
+            activeTab === 'staffkpi' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+          }`}
+        >
+          Staff KPI
+        </button>
       </div>
 
       {activeTab === 'activity' && (
@@ -559,6 +568,7 @@ export default function ReportingDashboard({ currentUser, onBackToHome }: Report
       )}
 
       {activeTab === 'upsell' && <UpsellAnalyticsPanel currentUser={currentUser} />}
+      {activeTab === 'staffkpi' && <StaffKpiPanel currentUser={currentUser} />}
     </div>
   );
 }

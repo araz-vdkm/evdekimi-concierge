@@ -18,9 +18,13 @@ import {
   UserCheck,
   Filter,
   UserPlus,
-  Activity
+  Activity,
+  FileSpreadsheet,
+  X,
+  ArrowRight
 } from 'lucide-react';
 import { UserAccount, UserRole } from '../types';
+import { VILLA_MANAGER_GROUPS } from '../data/villaManagerMapping';
 
 export default function UserManagement({ 
   currentUser,
@@ -54,6 +58,10 @@ export default function UserManagement({
   const [purgeResult, setPurgeResult] = useState<{ totalDeleted: number; deletedCounts: Record<string, number> } | null>(null);
   const [purgeStatusMessage, setPurgeStatusMessage] = useState<string | null>(null);
   const [toastNotification, setToastNotification] = useState<{ message: string; type: 'info' | 'success' | 'error' } | null>(null);
+
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [importSelections, setImportSelections] = useState<Record<string, string>>({});
+  const [isImporting, setIsImporting] = useState(false);
 
   const showToast = (message: string, type: 'info' | 'success' | 'error' = 'info') => {
     setToastNotification({ message, type });
@@ -247,6 +255,47 @@ export default function UserManagement({
     }
   };
 
+  const applyVillaImport = async () => {
+    const entries = (Object.entries(importSelections) as [string, string][]).filter(([, targetId]) => targetId);
+    if (entries.length === 0) {
+      showToast("Pick at least one staff member to match before applying.", "error");
+      return;
+    }
+    setIsImporting(true);
+    try {
+      let updatedCount = 0;
+      const nextUsers = [...users];
+      for (const [managerName, targetId] of entries) {
+        const group = VILLA_MANAGER_GROUPS.find(g => g.villaManager === managerName);
+        if (!group) continue;
+        const idx = nextUsers.findIndex(u => (u.uid || u.username) === targetId);
+        if (idx === -1) continue;
+        const existingUnits = nextUsers[idx].assignedUnits || [];
+        const mergedUnits = Array.from(new Set([...existingUnits, ...group.units]));
+        const updatedUser: UserAccount = { ...nextUsers[idx], assignedUnits: mergedUnits };
+        await saveRecord('users', targetId, updatedUser);
+        nextUsers[idx] = updatedUser;
+        updatedCount++;
+
+        if (
+          currentUser &&
+          (targetId === currentUser.uid || targetId === currentUser.username || updatedUser.email?.toLowerCase() === currentUser.email?.toLowerCase())
+        ) {
+          localStorage.setItem('conciergeUser', JSON.stringify(updatedUser));
+          window.dispatchEvent(new CustomEvent('user-updated', { detail: updatedUser }));
+        }
+      }
+      setUsers(nextUsers);
+      showToast(`Applied villa assignments to ${updatedCount} staff member${updatedCount === 1 ? '' : 's'}.`, "success");
+      setShowImportModal(false);
+      setImportSelections({});
+    } catch (e: any) {
+      showToast(e.message || 'Failed to apply villa assignments', "error");
+    } finally {
+      setIsImporting(false);
+    }
+  };
+
   const handleComplexToggle = (complex: string) => {
     setEditAssignedComplexes(prev => {
       const isSelected = prev.includes(complex);
@@ -350,6 +399,15 @@ export default function UserManagement({
               >
                 <Activity className="w-4 h-4 text-indigo-600" />
                 <span>QA & Role Testing Suite</span>
+              </button>
+            )}
+            {isSuperUserEmail(currentUser?.email) && (
+              <button
+                onClick={() => { setImportSelections({}); setShowImportModal(true); }}
+                className="px-3.5 py-2 bg-teal-50 hover:bg-teal-100 text-teal-700 border border-teal-200 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors shadow-xs"
+              >
+                <FileSpreadsheet className="w-4 h-4 text-teal-600" />
+                <span>Import Villa Assignments</span>
               </button>
             )}
             <div className="flex items-center gap-2 bg-slate-100 p-1 rounded-lg border border-slate-200 text-xs font-semibold text-slate-600">
@@ -808,6 +866,85 @@ export default function UserManagement({
                     <span>Confirm Block</span>
                   </>
                 )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Import Villa Assignments Modal - Superuser Only */}
+      {showImportModal && isSuperUserEmail(currentUser?.email) && (
+        <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center p-4 z-[100] backdrop-blur-sm">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-3xl max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+              <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                <FileSpreadsheet className="w-5 h-5 text-teal-600" />
+                Import Villa Assignments
+              </h2>
+              <button onClick={() => setShowImportModal(false)} className="text-slate-400 hover:text-slate-700 transition-colors">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6 overflow-y-auto flex-1 space-y-5">
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3.5 text-[12.5px] text-blue-800 leading-relaxed">
+                This matches the villa manager list from the uploaded spreadsheet to real ConciergePro accounts. For each name below, pick the matching staff account (or leave unmatched to skip). Applying will add that spreadsheet's villas to the selected account's assigned units, merging with whatever is already assigned.
+              </div>
+
+              {VILLA_MANAGER_GROUPS.map((group) => {
+                const knownUnits = new Set(Object.values(unitsByComplex).flat());
+                const matchedUnits = group.units.filter(u => knownUnits.has(u));
+                const unmatchedUnits = group.units.filter(u => !knownUnits.has(u));
+                return (
+                  <div key={group.villaManager} className="border border-slate-200 rounded-lg p-4 bg-slate-50/50">
+                    <div className="flex flex-col sm:flex-row sm:items-center gap-3 justify-between">
+                      <div>
+                        <div className="font-bold text-slate-800 text-sm">{group.villaManager}</div>
+                        <div className="text-xs text-slate-500 mt-0.5">{group.email || 'no email in spreadsheet'} &middot; {group.units.length} villa{group.units.length === 1 ? '' : 's'}</div>
+                      </div>
+                      <div className="flex items-center gap-2 w-full sm:w-72 shrink-0">
+                        <ArrowRight className="w-4 h-4 text-slate-300 shrink-0" />
+                        <select
+                          value={importSelections[group.villaManager] || ''}
+                          onChange={(e) => setImportSelections(prev => ({ ...prev, [group.villaManager]: e.target.value }))}
+                          className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-teal-500"
+                        >
+                          <option value="">-- Not matched / skip --</option>
+                          {users.slice().sort((a, b) => (a.firstName || a.username || '').localeCompare(b.firstName || b.username || '')).map(u => (
+                            <option key={u.uid || u.username} value={u.uid || u.username}>
+                              {(u.firstName || u.lastName) ? `${u.firstName || ''} ${u.lastName || ''}`.trim() : (u.username || u.email)} ({u.role})
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-1.5">
+                      {matchedUnits.map(u => (
+                        <span key={u} className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-700 text-[11px] font-semibold">{u}</span>
+                      ))}
+                      {unmatchedUnits.map(u => (
+                        <span key={u} className="px-2 py-0.5 rounded bg-amber-100 text-amber-700 text-[11px] font-semibold" title="Not found among the system's known units/complexes">{u} (unrecognized)</span>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-3">
+              <button
+                onClick={() => setShowImportModal(false)}
+                className="px-4 py-2 font-semibold text-slate-600 hover:bg-slate-200 bg-slate-100 rounded-lg transition-colors"
+                disabled={isImporting}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={applyVillaImport}
+                disabled={isImporting}
+                className="px-4 py-2 font-bold text-white bg-teal-600 hover:bg-teal-700 rounded-lg shadow-sm transition-colors flex items-center gap-2 disabled:opacity-60"
+              >
+                <Save className="w-4 h-4" /> {isImporting ? 'Applying...' : 'Apply Assignments'}
               </button>
             </div>
           </div>
