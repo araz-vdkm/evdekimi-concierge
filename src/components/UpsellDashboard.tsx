@@ -5,6 +5,7 @@ import { saveRecord } from '../lib/db';
 import { Guest, UserAccount } from '../types';
 import { isReservationAssignedToUser } from '../lib/villaMatcher';
 import { normalizeCountryName } from '../lib/utils';
+import { useRoles, canEditScreen } from '../lib/roles';
 import {
   Sparkles,
   Search,
@@ -56,6 +57,8 @@ interface UpsellItemRecord {
  * Visible only to admin and frontdesk roles (gated in App.tsx).
  */
 export default function UpsellDashboard({ currentUser, onBackToHome }: UpsellDashboardProps) {
+  const { roles } = useRoles();
+  const canEdit = canEditScreen(currentUser, roles, 'upsell');
   const [guests, setGuests] = useState<Guest[]>([]);
   const [itemsMap, setItemsMap] = useState<Record<string, UpsellItemRecord>>({});
   const [isLoading, setIsLoading] = useState(true);
@@ -344,7 +347,8 @@ export default function UpsellDashboard({ currentUser, onBackToHome }: UpsellDas
               <div className="flex items-center gap-1">
                 <button
                   onClick={() => handleSetStatus(g, idx, itemText, 'pending')}
-                  className={`flex-1 text-[10px] font-bold px-2 py-1 rounded-md transition-colors ${
+                  disabled={!canEdit}
+                  className={`flex-1 text-[10px] font-bold px-2 py-1 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
                     status === 'pending'
                       ? 'bg-amber-500 text-white shadow-sm'
                       : 'bg-white border border-slate-200 text-slate-500 hover:bg-amber-50'
@@ -354,7 +358,8 @@ export default function UpsellDashboard({ currentUser, onBackToHome }: UpsellDas
                 </button>
                 <button
                   onClick={() => openDoneModal(g, idx, itemText)}
-                  className={`flex-1 text-[10px] font-bold px-2 py-1 rounded-md transition-colors ${
+                  disabled={!canEdit}
+                  className={`flex-1 text-[10px] font-bold px-2 py-1 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
                     status === 'done'
                       ? 'bg-emerald-600 text-white shadow-sm'
                       : 'bg-white border border-slate-200 text-slate-500 hover:bg-emerald-50'
@@ -364,7 +369,8 @@ export default function UpsellDashboard({ currentUser, onBackToHome }: UpsellDas
                 </button>
                 <button
                   onClick={() => handleSetStatus(g, idx, itemText, 'rejected')}
-                  className={`flex-1 text-[10px] font-bold px-2 py-1 rounded-md transition-colors ${
+                  disabled={!canEdit}
+                  className={`flex-1 text-[10px] font-bold px-2 py-1 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
                     status === 'rejected'
                       ? 'bg-rose-500 text-white shadow-sm'
                       : 'bg-white border border-slate-200 text-slate-500 hover:bg-rose-50'

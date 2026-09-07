@@ -11,10 +11,11 @@ interface HomeProps {
   isAdmin: boolean;
   userRole?: string;
   currentUser?: any;
+  canEdit?: boolean;
 }
 
 
-export default function Home({ onSelectView, isAdmin, userRole, currentUser }: HomeProps) {
+export default function Home({ onSelectView, isAdmin, userRole, currentUser, canEdit = true }: HomeProps) {
   const [connectedConciergeEmail, setConnectedConciergeEmail] = useState<string>(() => {
     return localStorage.getItem("concierge_connected_email") || (localStorage.getItem("googleOAuthToken") ? "concierge@evdekimi.com" : "");
   });
@@ -600,7 +601,9 @@ export default function Home({ onSelectView, isAdmin, userRole, currentUser }: H
                           onClick={() => {
                             onSelectView('post_checkout', bookingData);
                           }}
-                          className={`flex-1 lg:flex-none inline-flex items-center justify-center gap-2 px-3 py-2.5 sm:py-2 rounded-xl font-semibold text-sm transition-colors sm:whitespace-nowrap ${
+                          disabled={!canEdit}
+                          title={!canEdit ? 'View-only access: you cannot submit reports.' : undefined}
+                          className={`flex-1 lg:flex-none inline-flex items-center justify-center gap-2 px-3 py-2.5 sm:py-2 rounded-xl font-semibold text-sm transition-colors sm:whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed ${
                             isPostCheckOutDone
                               ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
                               : 'bg-amber-50 text-amber-700 hover:bg-amber-100'
@@ -728,7 +731,9 @@ export default function Home({ onSelectView, isAdmin, userRole, currentUser }: H
                           onClick={() => {
                             onSelectView('pre_checkin', bookingData);
                           }}
-                          className={`flex-1 lg:flex-none inline-flex items-center justify-center gap-2 px-3 py-2.5 sm:py-2 rounded-xl font-semibold text-sm transition-colors sm:whitespace-nowrap ${
+                          disabled={!canEdit}
+                          title={!canEdit ? 'View-only access: you cannot submit reports.' : undefined}
+                          className={`flex-1 lg:flex-none inline-flex items-center justify-center gap-2 px-3 py-2.5 sm:py-2 rounded-xl font-semibold text-sm transition-colors sm:whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed ${
                             isPreCheckInDone 
                               ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
                               : 'bg-rose-50 text-rose-700 hover:bg-rose-100'
@@ -741,7 +746,9 @@ export default function Home({ onSelectView, isAdmin, userRole, currentUser }: H
                           onClick={() => {
                             onSelectView('checkin', bookingData);
                           }}
-                          className={`flex-1 lg:flex-none inline-flex items-center justify-center gap-2 px-3 py-2.5 sm:py-2 rounded-xl font-semibold text-sm transition-colors sm:whitespace-nowrap ${
+                          disabled={!canEdit}
+                          title={!canEdit ? 'View-only access: you cannot submit registrations.' : undefined}
+                          className={`flex-1 lg:flex-none inline-flex items-center justify-center gap-2 px-3 py-2.5 sm:py-2 rounded-xl font-semibold text-sm transition-colors sm:whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed ${
                             isGuestRegDone
                               ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
                               : 'bg-blue-50 text-blue-700 hover:bg-blue-100'

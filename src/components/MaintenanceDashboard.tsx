@@ -38,6 +38,7 @@ import { collection, getDocs, doc, setDoc, updateDoc } from 'firebase/firestore'
 import { saveRecord, syncAllRecordsToLocal, deleteRecord, clearFieldsWithAliases } from '../lib/db';
 import { compressImage } from '../lib/utils';
 import { uploadImageToStorage } from '../lib/storage';
+import { useRoles, canEditScreen } from '../lib/roles';
 
 interface MaintenanceDashboardProps {
   currentUser?: UserAccount | null;
@@ -60,7 +61,9 @@ export const formatUserName = (val: any): string => {
 };
 
 export default function MaintenanceDashboard({ currentUser, onBackToHome }: MaintenanceDashboardProps) {
-  const canDelete = currentUser?.role === 'admin' || isSuperUserEmail(currentUser?.email);
+  const { roles } = useRoles();
+  const canEdit = canEditScreen(currentUser, roles, 'maintenance');
+  const canDelete = canEdit;
   const [tickets, setTickets] = useState<MaintenanceTicket[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -540,6 +543,7 @@ export default function MaintenanceDashboard({ currentUser, onBackToHome }: Main
             <span>{isRefreshing ? 'Syncing...' : 'Refresh'}</span>
           </button>
 
+          {canEdit && (
           <button
             onClick={() => setIsCreateModalOpen(true)}
             className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-sm shadow-indigo-200 transition-all hover:shadow-md"
@@ -547,6 +551,7 @@ export default function MaintenanceDashboard({ currentUser, onBackToHome }: Main
             <Plus className="w-4 h-4" />
             <span>Log Maintenance Ticket</span>
           </button>
+          )}
         </div>
       </div>
 

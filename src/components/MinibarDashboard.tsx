@@ -5,6 +5,7 @@ import { saveRecord, deleteRecord, clearFieldsWithAliases } from '../lib/db';
 import { collection, getDocs, query, orderBy, limit } from 'firebase/firestore';
 import { MinibarRecord, MinibarItem } from '../types';
 import { isReservationAssignedToUser } from '../lib/villaMatcher';
+import { useRoles, canEditScreen } from '../lib/roles';
 import Toast from './Toast';
 
 const getInitials = (name?: string) => {
@@ -67,7 +68,9 @@ export default function MinibarDashboard({ currentUser, onBackToHome }: MinibarD
   const [editingReport, setEditingReport] = useState<any>(null);
   const [isConfirmingDelete, setIsConfirmingDelete] = useState<string | null>(null);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
-    const canDelete = currentUser?.role === 'admin' || isSuperUserEmail(currentUser?.email);
+    const { roles } = useRoles();
+    const canEdit = canEditScreen(currentUser, roles, 'minibar');
+    const canDelete = canEdit;
   const [editFormData, setEditFormData] = useState<Record<string, { initial: number, postOut: number }>>({});
 
   useEffect(() => {
@@ -644,7 +647,7 @@ export default function MinibarDashboard({ currentUser, onBackToHome }: MinibarD
                                 <div className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">ID: {report.bookingId}</div>
                               </div>
                             </div>
-                                                        {currentUser?.role === 'admin' && (
+                                                        {canEdit && (
                               <div className="flex items-center gap-1">
                                 <button 
                                   onClick={() => handleEditReport(report)} 
@@ -989,9 +992,12 @@ export default function MinibarDashboard({ currentUser, onBackToHome }: MinibarD
                 </div>
               </div>
 
+              {!canEdit && (
+                <p className="text-center text-xs text-blue-100 font-semibold mb-2">You have view-only access and cannot submit minibar logs.</p>
+              )}
               <button
                 onClick={handleSubmit}
-                disabled={!selectedComplex || !selectedUnit || items.length === 0 || isSubmitting}
+                disabled={!canEdit || !selectedComplex || !selectedUnit || items.length === 0 || isSubmitting}
                 className="w-full py-3.5 bg-white text-blue-700 font-bold rounded-lg shadow-sm hover:bg-blue-50 transition-colors disabled:opacity-70 flex items-center justify-center gap-2 cursor-pointer"
               >
                 {isSubmitting ? (

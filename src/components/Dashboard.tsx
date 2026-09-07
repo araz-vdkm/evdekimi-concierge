@@ -11,6 +11,7 @@ import { Users, Search, Download, RefreshCcw, Sparkles, TrendingUp, Calendar, Ma
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
 import { normalizeCountryName } from '../lib/utils';
 import * as XLSX from 'xlsx';
+import { useRoles, canEditScreen } from '../lib/roles';
 
 interface DashboardProps {
   spreadsheetId: string;
@@ -25,7 +26,8 @@ const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4'
 export default function Dashboard({ spreadsheetId, initialSearchTerm, initialTab, onComplete, currentUser }: DashboardProps) {
   const [guests, setGuests] = useState<Guest[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const canDelete = currentUser?.role === 'admin' || isSuperUserEmail(currentUser?.email);
+  const { roles } = useRoles();
+  const canDelete = canEditScreen(currentUser, roles, 'dashboard');
 
   const [searchTerm, setSearchTerm] = useState(initialSearchTerm || '');
   const [activeTab, setActiveTab] = useState<'overview' | 'list' | 'pre-checkin' | 'post-checkout'>(
