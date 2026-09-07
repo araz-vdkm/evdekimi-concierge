@@ -1,12 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { collection, onSnapshot } from 'firebase/firestore';
 import { db, getAccessToken, getGoogleToken } from '../lib/auth';
-import { UserAccount } from '../types';
+import { UserAccount, Guest } from '../types';
 import { isReservationAssignedToUser } from '../lib/villaMatcher';
 import { normalizeActiveReservations } from '../lib/reservationUtils';
 import {
-  RefreshCcw, UserCheck, ClipboardCheck, ClipboardList, ChevronDown, ChevronUp,
-  AlertTriangle, Info
+  RefreshCcw, UserCheck, ClipboardCheck, ClipboardList,
+  AlertTriangle, Info, TrendingUp, Landmark, Target, Percent
 } from 'lucide-react';
 
 interface StaffKpiPanelProps {
@@ -75,6 +75,31 @@ function inRange(dateStr: string | undefined, start: Date, end: Date): boolean {
   return d >= start && d <= end;
 }
 
+function parseMoney(v?: string): number {
+  if (!v) return 0;
+  const n = parseFloat(String(v).replace(/[^0-9.-]/g, ''));
+  return isNaN(n) ? 0 : n;
+}
+
+function formatMoney(n: number): string {
+  return `$${n.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
+}
+
+interface UpsellItemRecord {
+  status?: 'pending' | 'done' | 'rejected';
+  price?: string;
+  commission?: string;
+  handledBy?: string;
+}
+
+interface StaffUpsellStat {
+  totalRevenue: number;
+  totalCommission: number;
+  completed: number;
+  suggested: number;
+  conversionRate: number;
+}
+
 interface StaffTypeStat {
   should: number;
   doneByThem: number;
@@ -97,8 +122,8 @@ export default function StaffKpiPanel({ currentUser }: StaffKpiPanelProps) {
   const [isLoadingReservations, setIsLoadingReservations] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [period, setPeriod] = useState<KpiPeriod>('7d');
-  const [expandedUser, setExpandedUser] = useState<string | null>(null);
-  const [expandedType, setExpandedType] = useState<ActivityType | null>(null);
+  const [guests, setGuests] = useState<Guest[]>([]);
+  const [upsellItemsMap, setUpsellItemsMap] = useState<Record<string, UpsellItemRecord>>({});
 
   useEffect(() => {
     const unsub = onSnapshot(collection(db, 'users'), (snap) => {
@@ -120,6 +145,28 @@ export default function StaffKpiPanel({ currentUser }: StaffKpiPanelProps) {
         list.push({ id: docSnap.id, ...(docSnap.data() as any) });
       });
       setLogs(list);
+    }, () => {});
+    return () => unsub();
+  }, []);
+
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, 'guests'), (snap) => {
+      const list: Guest[] = [];
+      snap.forEach((docSnap) => {
+        list.push({ ...(docSnap.data() as any), id: docSnap.id });
+      });
+      setGuests(list);
+    }, () => {});
+    return () => unsub();
+  }, []);
+
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, 'upsell_items'), (snap) => {
+      const map: Record<string, UpsellItemRecord> = {};
+      snap.forEach((docSnap) => {
+        map[docSnap.id] = docSnap.data() as UpsellItemRecord;
+      });
+      setUpsellItemsMap(map);
     }, () => {});
     return () => unsub();
   }, []);
@@ -233,6 +280,50 @@ export default function StaffKpiPanel({ currentUser }: StaffKpiPanelProps) {
     return { should, done, pct: should > 0 ? Math.round((done / should) * 100) : 100 };
   }, [staffStats]);
 
+  // Personal upsell performance per staff member: suggestions across every
+  // guest in their assigned villas this period (the "should" side), vs the
+  // ones THEY personally closed out as done (matches the personal-responsibility
+  // model used for check-in/check-out KPI above).
+  const upsellStatsByUser = useMemo(() => {
+    const result: Record<string, StaffUpsellStat> = {};
+    frontdeskUsers.forEach((user) => {
+      const uid = user.uid || user.username || '';
+      let totalRevenue = 0;
+      let totalCommission = 0;
+      let completed = 0;
+      let suggested = 0;
+
+      guests
+        .filter((g) => {
+          if (!isReservationAssignedToUser(g, user)) return false;
+          return inRange(g.checkInDate || g.timestamp, start, end);
+        })
+        .forEach((g) => {
+          const items = (g.upsell || '').split(',').map((s) => s.trim()).filter(Boolean);
+          items.forEach((_itemText, idx) => {
+            suggested++;
+            const record = upsellItemsMap[`${g.id}_item_${idx}`];
+            if (!record) return;
+            const byThem = record.handledBy && (record.handledBy === user.username || record.handledBy === user.email);
+            if (record.status === 'done' && byThem) {
+              completed++;
+              totalRevenue += parseMoney(record.price);
+              totalCommission += parseMoney(record.commission);
+            }
+          });
+        });
+
+      result[uid] = {
+        totalRevenue,
+        totalCommission,
+        completed,
+        suggested,
+        conversionRate: suggested > 0 ? (completed / suggested) * 100 : 0
+      };
+    });
+    return result;
+  }, [frontdeskUsers, guests, upsellItemsMap, start, end]);
+
   const isLoading = isLoadingUsers || isLoadingReservations;
 
   const staffName = (u: UserAccount) => u.firstName || u.lastName ? `${u.firstName || ''} ${u.lastName || ''}`.trim() : (u.username || u.email || 'Unknown');
@@ -312,101 +403,84 @@ export default function StaffKpiPanel({ currentUser }: StaffKpiPanelProps) {
               const barColor = pct >= 90 ? 'bg-emerald-500' : pct >= 70 ? 'bg-amber-500' : 'bg-rose-500';
               const textColor = pct >= 90 ? 'text-emerald-700' : pct >= 70 ? 'text-amber-700' : 'text-rose-700';
               const uid = stat.user.uid || stat.user.username || '';
-              const isExpanded = expandedUser === uid;
+              const villaCount = (stat.user.assignedUnits?.length || 0) + (stat.user.assignedComplexes?.length || 0);
+              const upsell = upsellStatsByUser[uid] || { totalRevenue: 0, totalCommission: 0, completed: 0, suggested: 0, conversionRate: 0 };
+              const commissionRate = upsell.totalRevenue > 0 ? (upsell.totalCommission / upsell.totalRevenue) * 100 : null;
               return (
                 <div key={uid} className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
-                  <button
-                    onClick={() => { setExpandedUser(isExpanded ? null : uid); setExpandedType(null); }}
-                    className="w-full flex items-center gap-4 p-4 sm:p-5 hover:bg-slate-50 transition-colors text-left"
-                  >
-                    <div className="w-11 h-11 rounded-xl bg-slate-100 text-slate-500 flex items-center justify-center font-extrabold text-sm shrink-0">
-                      {staffName(stat.user).slice(0, 2).toUpperCase()}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="font-bold text-slate-900 text-[15px] truncate">{staffName(stat.user)}</div>
-                      <div className="text-[12.5px] text-slate-400 mt-0.5">
-                        {(stat.user.assignedUnits?.length || 0) + (stat.user.assignedComplexes?.length || 0)} villa{(stat.user.assignedUnits?.length || 0) + (stat.user.assignedComplexes?.length || 0) === 1 ? '' : 's'} assigned
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-4 p-4 sm:p-5">
+                    <div className="flex items-center gap-4 flex-1 min-w-0">
+                      <div className="w-11 h-11 rounded-xl bg-slate-100 text-slate-500 flex items-center justify-center font-extrabold text-sm shrink-0">
+                        {staffName(stat.user).slice(0, 2).toUpperCase()}
+                      </div>
+                      <div className="min-w-0">
+                        <div className="font-bold text-slate-900 text-[15px] truncate">{staffName(stat.user)}</div>
+                        <div className="text-[12.5px] text-slate-400 mt-0.5">
+                          {villaCount} villa{villaCount === 1 ? '' : 's'} assigned
+                        </div>
                       </div>
                     </div>
-                    <div className="hidden sm:flex items-center gap-6 shrink-0">
+                    <div className="flex items-center gap-6 shrink-0 justify-between sm:justify-end">
                       {TYPE_META.map((meta) => {
                         const t = stat.perType[meta.type];
                         const tpct = t.should > 0 ? Math.round((t.doneByThem / t.should) * 100) : 100;
                         return (
-                          <div key={meta.type} className="text-center w-[86px]">
-                            <div className="flex items-center justify-center gap-1 text-slate-400 mb-1">{meta.icon}</div>
+                          <div key={meta.type} className="text-center w-[72px] sm:w-[86px]">
+                            <div className="flex items-center justify-center gap-1 text-slate-400 mb-1" title={meta.label}>{meta.icon}</div>
                             <div className="text-sm font-extrabold text-slate-900">{t.doneByThem}/{t.should}</div>
                             <div className="text-[11px] text-slate-400 font-medium">{tpct}%</div>
                           </div>
                         );
                       })}
+                      <div className="text-right w-16">
+                        <div className={`text-lg font-extrabold ${textColor}`}>{pct}%</div>
+                      </div>
                     </div>
-                    <div className="text-right shrink-0 w-16">
-                      <div className={`text-lg font-extrabold ${textColor}`}>{pct}%</div>
-                    </div>
-                    {isExpanded ? <ChevronUp className="w-4 h-4 text-slate-400 shrink-0" /> : <ChevronDown className="w-4 h-4 text-slate-400 shrink-0" />}
-                  </button>
+                  </div>
                   <div className="h-1.5 bg-slate-100">
                     <div className={`h-full ${barColor}`} style={{ width: `${pct}%` }} />
                   </div>
 
-                  {isExpanded && (
-                    <div className="border-t border-slate-100 bg-slate-50 p-4 sm:p-5">
-                      <div className="flex flex-wrap gap-2 mb-4">
-                        {TYPE_META.map((meta) => {
-                          const t = stat.perType[meta.type];
-                          const active = expandedType === meta.type;
-                          return (
-                            <button
-                              key={meta.type}
-                              onClick={() => setExpandedType(active ? null : meta.type)}
-                              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors border ${
-                                active ? 'bg-white border-slate-300 text-slate-900' : 'bg-white/60 border-transparent text-slate-500 hover:text-slate-700'
-                              }`}
-                            >
-                              {meta.icon} {meta.label}: {t.doneByThem}/{t.should}
-                              {t.doneByOther > 0 && <span className="text-slate-400 font-medium">({t.doneByOther} by other staff)</span>}
-                            </button>
-                          );
-                        })}
-                      </div>
-
-                      {expandedType && (
-                        stat.perType[expandedType].missed.length === 0 ? (
-                          <div className="text-[12.5px] text-slate-400 py-2">No gaps for {TYPE_META.find(m => m.type === expandedType)?.label} in this period — nice work.</div>
-                        ) : (
-                          <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
-                            <table className="w-full text-left border-collapse">
-                              <thead className="bg-slate-50 border-b border-slate-200">
-                                <tr className="text-[11px] uppercase tracking-wider text-slate-500 font-bold">
-                                  <th className="px-4 py-2.5 font-semibold">Guest</th>
-                                  <th className="px-4 py-2.5 font-semibold">Villa / Unit</th>
-                                  <th className="px-4 py-2.5 font-semibold">Date</th>
-                                  <th className="px-4 py-2.5 font-semibold">Status</th>
-                                </tr>
-                              </thead>
-                              <tbody className="text-sm divide-y divide-slate-100">
-                                {stat.perType[expandedType].missed.map((m, idx) => (
-                                  <tr key={idx}>
-                                    <td className="px-4 py-2.5 font-bold text-slate-900">{m.guestName}</td>
-                                    <td className="px-4 py-2.5 text-slate-600 font-medium">{m.unitName}</td>
-                                    <td className="px-4 py-2.5 text-slate-600 font-medium">{m.date}</td>
-                                    <td className="px-4 py-2.5">
-                                      {m.doneByOther ? (
-                                        <span className="text-[11.5px] font-bold text-amber-700">Done by {m.doneByOther}</span>
-                                      ) : (
-                                        <span className="text-[11.5px] font-bold text-rose-700">Not done</span>
-                                      )}
-                                    </td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
-                          </div>
-                        )
-                      )}
+                  {/* Personal upsell performance */}
+                  <div className="border-t border-slate-100 bg-slate-50/70 px-4 sm:px-5 py-4">
+                    <div className="flex items-center gap-1.5 text-[11px] font-extrabold tracking-wide text-slate-400 uppercase mb-3">
+                      Upsells this period
                     </div>
-                  )}
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                      <div>
+                        <div className="flex items-center gap-1.5 text-slate-400 mb-1">
+                          <TrendingUp className="w-3.5 h-3.5" />
+                          <span className="text-[11px] font-bold uppercase tracking-wide">Total Revenue</span>
+                        </div>
+                        <div className="text-lg font-extrabold text-slate-900">{formatMoney(upsell.totalRevenue)}</div>
+                        <div className="text-[11px] text-slate-400 font-medium mt-0.5">from {upsell.completed} completed upsell{upsell.completed === 1 ? '' : 's'}</div>
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-1.5 text-slate-400 mb-1">
+                          <Landmark className="w-3.5 h-3.5" />
+                          <span className="text-[11px] font-bold uppercase tracking-wide">Total Commission</span>
+                        </div>
+                        <div className="text-lg font-extrabold text-slate-900">{formatMoney(upsell.totalCommission)}</div>
+                        <div className="text-[11px] text-slate-400 font-medium mt-0.5">{commissionRate !== null ? `${commissionRate.toFixed(1)}% average rate` : 'no completed revenue yet'}</div>
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-1.5 text-slate-400 mb-1">
+                          <Target className="w-3.5 h-3.5" />
+                          <span className="text-[11px] font-bold uppercase tracking-wide">Completed Upsells</span>
+                        </div>
+                        <div className="text-lg font-extrabold text-slate-900">{upsell.completed}</div>
+                        <div className="text-[11px] text-slate-400 font-medium mt-0.5">of {upsell.suggested} suggested this period</div>
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-1.5 text-slate-400 mb-1">
+                          <Percent className="w-3.5 h-3.5" />
+                          <span className="text-[11px] font-bold uppercase tracking-wide">Conversion Rate</span>
+                        </div>
+                        <div className="text-lg font-extrabold text-slate-900">{upsell.conversionRate.toFixed(0)}%</div>
+                        <div className="text-[11px] text-slate-400 font-medium mt-0.5">guests who accepted a suggestion</div>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               );
             })}
