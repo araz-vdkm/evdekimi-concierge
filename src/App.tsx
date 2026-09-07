@@ -19,8 +19,9 @@ import PrivacyPolicyModal from './components/PrivacyPolicyModal';
 import TermsOfServiceModal from './components/TermsOfServiceModal';
 import { onAuthStateChanged, signOut as firebaseSignOut } from 'firebase/auth';
 import { auth, getAccessToken, getGoogleToken, isSuperUserEmail } from './lib/auth';
-import { UserAccount, UserRole } from './types';
+import { UserAccount, ScreenKey } from './types';
 import EvdekimiLogo from './components/EvdekimiLogo';
+import { useRoles, getScreenAccess, canViewScreen, canEditScreen, isSuperuserAccount } from './lib/roles';
 
 // Accounts database removed
 
@@ -290,11 +291,21 @@ export default function App() {
   };
 
   const effectiveUser = simulatedUser || currentUser;
-  const isAdmin = effectiveUser?.role === 'admin';
-  const isSupervisor = effectiveUser?.role === 'supervisor';
-  const isFrontdesk = effectiveUser?.role === 'frontdesk';
-  const canSeeUpsell = isAdmin || isFrontdesk;
-  const isSuperuser = isSuperUserEmail(effectiveUser?.email);
+  const { roles } = useRoles();
+  const canView = (screen: ScreenKey) => canViewScreen(effectiveUser, roles, screen);
+  const canEditHome = canEditScreen(effectiveUser, roles, 'home');
+  const isSuperuser = isSuperuserAccount(effectiveUser, roles);
+
+  const MENU_ITEMS: { view: typeof currentView; label: string; icon: React.ReactNode; visible: (cv: (s: ScreenKey) => boolean) => boolean }[] = [
+    { view: 'home', label: 'Operations Board', icon: <HomeIcon className="w-5 h-5" />, visible: (cv) => cv('home') },
+    { view: 'dashboard', label: 'Guest Insights', icon: <LayoutDashboard className="w-5 h-5" />, visible: (cv) => cv('dashboard') },
+    { view: 'maintenance', label: 'Maintenance', icon: <Wrench className="w-5 h-5 text-amber-500" />, visible: (cv) => cv('maintenance') },
+    { view: 'minibar', label: 'Minibar', icon: <Coffee className="w-5 h-5 text-emerald-500" />, visible: (cv) => cv('minibar') },
+    { view: 'upsell', label: 'Upsell Opportunities', icon: <Sparkles className="w-5 h-5 text-violet-500" />, visible: (cv) => cv('upsell') },
+    { view: 'reporting', label: 'Reporting', icon: <BarChart3 className="w-5 h-5 text-blue-500" />, visible: (cv) => cv('reporting') },
+    { view: 'usermanagement', label: 'User Management', icon: <Users className="w-5 h-5" />, visible: (cv) => cv('usermanagement') || cv('rolemanagement') },
+    { view: 'qatesting', label: 'QA & Roles Suite', icon: <Activity className="w-5 h-5 text-indigo-500" />, visible: (cv) => cv('qatesting') },
+  ];
 
   const isSurveyRoute = window.location.hash.startsWith('#/survey/');
   
@@ -304,16 +315,23 @@ export default function App() {
   }
 
   useEffect(() => {
-    if (isSupervisor) {
-      if (!['home', 'minibar', 'pre_checkin', 'post_checkout', 'checkin'].includes(currentView)) {
-        setCurrentView('home');
-      }
-    } else if (!isAdmin && (currentView === 'dashboard' || currentView === 'usermanagement' || currentView === 'qatesting' || currentView === 'reporting')) {
-      setCurrentView('home');
-    } else if (currentView === 'upsell' && !canSeeUpsell) {
+    const screenForView: Partial<Record<string, ScreenKey>> = {
+      home: 'home', checkin: 'home', pre_checkin: 'home', post_checkout: 'home',
+      dashboard: 'dashboard', usermanagement: 'usermanagement', maintenance: 'maintenance',
+      minibar: 'minibar', upsell: 'upsell', reporting: 'reporting', qatesting: 'qatesting'
+    };
+    const requiredScreen = screenForView[currentView];
+    const allowed =
+      requiredScreen === 'usermanagement'
+        ? (canView('usermanagement') || canView('rolemanagement'))
+        : requiredScreen
+        ? canView(requiredScreen)
+        : true;
+    if (!allowed) {
       setCurrentView('home');
     }
-  }, [isAdmin, isSupervisor, canSeeUpsell, currentView]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [effectiveUser, roles, currentView]);
 
   if (isAuthLoading) {
     return (
@@ -407,56 +425,6 @@ export default function App() {
         </div>
         
         <div className="flex items-center gap-2 sm:gap-4 text-slate-300 text-sm font-medium">
-          {!isSupervisor && (
-            <button
-              onClick={() => setCurrentView('maintenance')}
-              className={`hidden sm:flex items-center gap-1.5 shrink-0 transition-colors px-3 py-1.5 rounded-lg border text-sm font-semibold ${
-                currentView === 'maintenance'
-                  ? 'bg-amber-500 text-white border-amber-400 shadow-xs'
-                  : 'bg-slate-800 text-slate-200 hover:text-white hover:bg-slate-700 border-slate-700'
-              }`}
-            >
-              <Wrench className={`w-4 h-4 ${currentView === 'maintenance' ? 'text-white' : 'text-amber-400'}`} />
-              <span className="hidden sm:inline">Maintenance</span>
-            </button>
-          )}
-          <button
-            onClick={() => setCurrentView('minibar')}
-            className={`hidden sm:flex items-center gap-1.5 shrink-0 transition-colors px-3 py-1.5 rounded-lg border text-sm font-semibold ${
-              currentView === 'minibar'
-                ? 'bg-emerald-600 text-white border-emerald-500 shadow-xs'
-                : 'bg-slate-800 text-slate-200 hover:text-white hover:bg-slate-700 border-slate-700'
-            }`}
-          >
-            <Coffee className={`w-4 h-4 ${currentView === 'minibar' ? 'text-white' : 'text-emerald-400'}`} />
-            <span className="hidden sm:inline">{isSupervisor ? 'Minibar Manual Entry' : 'Minibar'}</span>
-          </button>
-          {canSeeUpsell && (
-            <button
-              onClick={() => setCurrentView('upsell')}
-              className={`hidden sm:flex items-center gap-1.5 shrink-0 transition-colors px-3 py-1.5 rounded-lg border text-sm font-semibold ${
-                currentView === 'upsell'
-                  ? 'bg-violet-600 text-white border-violet-500 shadow-xs'
-                  : 'bg-slate-800 text-slate-200 hover:text-white hover:bg-slate-700 border-slate-700'
-              }`}
-            >
-              <Sparkles className={`w-4 h-4 ${currentView === 'upsell' ? 'text-white' : 'text-violet-400'}`} />
-              <span className="hidden sm:inline">Upsell</span>
-            </button>
-          )}
-          {isAdmin && (
-            <button
-              onClick={() => setCurrentView('qatesting')}
-              className={`hidden md:flex items-center gap-1.5 shrink-0 transition-colors px-3 py-1.5 rounded-lg border text-sm font-semibold ${
-                currentView === 'qatesting'
-                  ? 'bg-indigo-600 text-white border-indigo-500 shadow-xs'
-                  : 'bg-slate-800 text-indigo-300 hover:text-white hover:bg-slate-700 border-slate-700'
-              }`}
-            >
-              <Activity className="w-4 h-4 text-indigo-400" />
-              <span>QA & Roles Suite</span>
-            </button>
-          )}
           <button 
             onClick={() => {
               setIsGlobalRefreshing(true);
@@ -479,79 +447,15 @@ export default function App() {
             
             {isMenuOpen && (
               <div className="absolute right-0 top-full mt-4 w-60 bg-white rounded-xl shadow-xl py-2 z-50 border border-slate-100">
-                {isSupervisor ? (
-                  <>
-                    <button
-                      onClick={() => { setCurrentView('home'); setIsMenuOpen(false); }}
-                      className={`w-full text-left px-4 py-3 flex items-center gap-3 hover:bg-slate-50 transition-colors ${currentView === 'home' ? 'text-blue-600 font-bold' : 'text-slate-700 font-medium'}`}
-                    >
-                      <HomeIcon className="w-5 h-5" /> Operations Board
-                    </button>
-                    <button
-                      onClick={() => { setCurrentView('minibar'); setIsMenuOpen(false); }}
-                      className="w-full text-left px-4 py-3 flex items-center gap-3 bg-emerald-50 text-emerald-700 font-bold"
-                    >
-                      <Coffee className="w-5 h-5 text-emerald-600" /> Minibar Manual Entry
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    <button
-                      onClick={() => { setCurrentView('home'); setIsMenuOpen(false); }}
-                      className={`w-full text-left px-4 py-3 flex items-center gap-3 hover:bg-slate-50 transition-colors ${currentView === 'home' ? 'text-blue-600 font-bold' : 'text-slate-700 font-medium'}`}
-                    >
-                      <HomeIcon className="w-5 h-5" /> Operations Board
-                    </button>
-                    <button
-                      onClick={() => { setCurrentView('maintenance'); setIsMenuOpen(false); }}
-                      className={`w-full text-left px-4 py-3 flex items-center gap-3 hover:bg-slate-50 transition-colors ${currentView === 'maintenance' ? 'text-blue-600 font-bold' : 'text-slate-700 font-medium'}`}
-                    >
-                      <Wrench className={`w-5 h-5 ${currentView === 'maintenance' ? 'text-blue-600' : 'text-amber-500'}`} /> Maintenance Tickets
-                    </button>
-                    <button
-                      onClick={() => { setCurrentView('minibar'); setIsMenuOpen(false); }}
-                      className={`w-full text-left px-4 py-3 flex items-center gap-3 hover:bg-slate-50 transition-colors ${currentView === 'minibar' ? 'text-blue-600 font-bold' : 'text-slate-700 font-medium'}`}
-                    >
-                      <Coffee className={`w-5 h-5 ${currentView === 'minibar' ? 'text-blue-600' : 'text-emerald-500'}`} /> Minibar
-                    </button>
-                    {canSeeUpsell && (
-                      <button
-                        onClick={() => { setCurrentView('upsell'); setIsMenuOpen(false); }}
-                        className={`w-full text-left px-4 py-3 flex items-center gap-3 hover:bg-slate-50 transition-colors ${currentView === 'upsell' ? 'text-blue-600 font-bold' : 'text-slate-700 font-medium'}`}
-                      >
-                        <Sparkles className={`w-5 h-5 ${currentView === 'upsell' ? 'text-blue-600' : 'text-violet-500'}`} /> Upsell Opportunities
-                      </button>
-                    )}
-                  </>
-                )}
-                {isAdmin && (
-                  <>
+                {MENU_ITEMS.filter(item => item.visible(canView)).map(item => (
                   <button
-                    onClick={() => { setCurrentView('dashboard'); setIsMenuOpen(false); }}
-                    className={`w-full text-left px-4 py-3 flex items-center gap-3 hover:bg-slate-50 transition-colors ${currentView === 'dashboard' ? 'text-blue-600 font-bold' : 'text-slate-700 font-medium'}`}
+                    key={item.view}
+                    onClick={() => { setCurrentView(item.view); setIsMenuOpen(false); }}
+                    className={`w-full text-left px-4 py-3 flex items-center gap-3 hover:bg-slate-50 transition-colors ${currentView === item.view ? 'text-blue-600 font-bold' : 'text-slate-700 font-medium'}`}
                   >
-                    <LayoutDashboard className="w-5 h-5" /> Guest Insights
+                    {item.icon} {item.label}
                   </button>
-                  <button
-                    onClick={() => { setCurrentView('usermanagement'); setIsMenuOpen(false); }}
-                    className={`w-full text-left px-4 py-3 flex items-center gap-3 hover:bg-slate-50 transition-colors ${currentView === 'usermanagement' ? 'text-blue-600 font-bold' : 'text-slate-700 font-medium'}`}
-                  >
-                    <Users className="w-5 h-5" /> User Management
-                  </button>
-                  <button
-                    onClick={() => { setCurrentView('qatesting'); setIsMenuOpen(false); }}
-                    className={`w-full text-left px-4 py-3 flex items-center gap-3 hover:bg-slate-50 transition-colors ${currentView === 'qatesting' ? 'text-blue-600 font-bold' : 'text-indigo-600 font-semibold'}`}
-                  >
-                    <Activity className="w-5 h-5 text-indigo-500" /> QA System & Role Suite
-                  </button>
-                  <button
-                    onClick={() => { setCurrentView('reporting'); setIsMenuOpen(false); }}
-                    className={`w-full text-left px-4 py-3 flex items-center gap-3 hover:bg-slate-50 transition-colors ${currentView === 'reporting' ? 'text-blue-600 font-bold' : 'text-slate-700 font-medium'}`}
-                  >
-                    <BarChart3 className="w-5 h-5 text-blue-500" /> Reporting
-                  </button>
-                  </>
-                )}
+                ))}
 
               </div>
             )}
@@ -562,7 +466,7 @@ export default function App() {
           <div className="flex items-center gap-3 sm:border-l sm:border-slate-700 sm:pl-4 shrink-0">
             <div className="flex items-center gap-2">
               <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold ${
-                effectiveUser?.role === 'admin' ? 'bg-purple-600' : effectiveUser?.role === 'supervisor' ? 'bg-blue-600' : 'bg-emerald-600'
+                isSuperuser ? 'bg-purple-600' : canView('usermanagement') ? 'bg-blue-600' : 'bg-emerald-600'
               }`}>
                 {effectiveUser?.username.charAt(0).toUpperCase() || 'U'}
               </div>
@@ -582,8 +486,8 @@ export default function App() {
       </header>
 
       <main className="flex-1 overflow-auto flex flex-col">
-        {currentView === 'home' && <Home onSelectView={(view, data) => { setCurrentView(view); if (data) setCheckinData(data); else setCheckinData(null); }} isAdmin={isAdmin} userRole={effectiveUser?.role} currentUser={effectiveUser} />}
-        {currentView === 'checkin' && (
+        {currentView === 'home' && canView('home') && <Home onSelectView={(view, data) => { setCurrentView(view); if (data) setCheckinData(data); else setCheckinData(null); }} isAdmin={isSuperuser} userRole={effectiveUser?.role} currentUser={effectiveUser} canEdit={canEditHome} />}
+        {currentView === 'checkin' && canView('home') && (
           spreadsheetId ? (
             <CheckInFlow spreadsheetId={spreadsheetId} onComplete={() => setCurrentView('home')} initialBooking={checkinData} currentUser={effectiveUser} />
           ) : (
@@ -593,9 +497,9 @@ export default function App() {
             </div>
           )
         )}
-        {currentView === 'pre_checkin' && <PreCheckInFlow onComplete={() => setCurrentView('home')} initialBooking={checkinData} currentUser={effectiveUser} />}
-        {currentView === 'post_checkout' && <PostCheckOutFlow onComplete={() => setCurrentView('home')} initialBooking={checkinData} currentUser={effectiveUser} />}
-        {currentView === 'dashboard' && (
+        {currentView === 'pre_checkin' && canView('home') && <PreCheckInFlow onComplete={() => setCurrentView('home')} initialBooking={checkinData} currentUser={effectiveUser} />}
+        {currentView === 'post_checkout' && canView('home') && <PostCheckOutFlow onComplete={() => setCurrentView('home')} initialBooking={checkinData} currentUser={effectiveUser} />}
+        {currentView === 'dashboard' && canView('dashboard') && (
           spreadsheetId ? (
             <Dashboard spreadsheetId={spreadsheetId} initialSearchTerm={checkinData?.guestName || checkinData?.confirmationCode} initialTab={checkinData?.targetTab} onComplete={() => setCurrentView('home')} currentUser={effectiveUser} />
           ) : (
@@ -605,12 +509,12 @@ export default function App() {
             </div>
           )
         )}
-        {currentView === 'usermanagement' && isAdmin && <UserManagement currentUser={effectiveUser || undefined} onNavigateQA={() => setCurrentView('qatesting')} />}
-        {currentView === 'maintenance' && <MaintenanceDashboard currentUser={effectiveUser} onBackToHome={() => setCurrentView('home')} />}
-        {currentView === 'minibar' && <MinibarDashboard currentUser={effectiveUser} onBackToHome={() => setCurrentView('home')} />}
-        {currentView === 'upsell' && canSeeUpsell && <UpsellDashboard currentUser={effectiveUser} onBackToHome={() => setCurrentView('home')} />}
-        {currentView === 'reporting' && isAdmin && <ReportingDashboard currentUser={effectiveUser} onBackToHome={() => setCurrentView('home')} />}
-        {currentView === 'qatesting' && isAdmin && (
+        {currentView === 'usermanagement' && (canView('usermanagement') || canView('rolemanagement')) && <UserManagement currentUser={effectiveUser || undefined} onNavigateQA={() => setCurrentView('qatesting')} />}
+        {currentView === 'maintenance' && canView('maintenance') && <MaintenanceDashboard currentUser={effectiveUser} onBackToHome={() => setCurrentView('home')} />}
+        {currentView === 'minibar' && canView('minibar') && <MinibarDashboard currentUser={effectiveUser} onBackToHome={() => setCurrentView('home')} />}
+        {currentView === 'upsell' && canView('upsell') && <UpsellDashboard currentUser={effectiveUser} onBackToHome={() => setCurrentView('home')} />}
+        {currentView === 'reporting' && canView('reporting') && <ReportingDashboard currentUser={effectiveUser} onBackToHome={() => setCurrentView('home')} />}
+        {currentView === 'qatesting' && canView('qatesting') && (
           <QATestingSuite
             currentUser={effectiveUser}
             onBackToHome={() => setCurrentView('home')}
