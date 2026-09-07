@@ -21,10 +21,14 @@ import {
   Activity,
   FileSpreadsheet,
   X,
-  ArrowRight
+  ArrowRight,
+  Shield,
+  Users
 } from 'lucide-react';
-import { UserAccount, UserRole } from '../types';
+import { UserAccount, ScreenAccessLevel } from '../types';
 import { VILLA_MANAGER_GROUPS } from '../data/villaManagerMapping';
+import { useRoles, getScreenAccess, resolveRole } from '../lib/roles';
+import RoleManagement from './RoleManagement';
 
 export default function UserManagement({ 
   currentUser,
@@ -37,7 +41,7 @@ export default function UserManagement({
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'blocked' | 'pending'>('all');
-  const [roleFilter, setRoleFilter] = useState<'all' | UserRole>('all');
+  const [roleFilter, setRoleFilter] = useState<string>('all');
   
   const [complexes, setComplexes] = useState<string[]>([]);
   const [unitsByComplex, setUnitsByComplex] = useState<Record<string, string[]>>({});
@@ -45,7 +49,7 @@ export default function UserManagement({
   const [editingUser, setEditingUser] = useState<UserAccount | null>(null);
   const [editAssignedComplexes, setEditAssignedComplexes] = useState<string[]>([]);
   const [editAssignedUnits, setEditAssignedUnits] = useState<string[]>([]);
-  const [editRole, setEditRole] = useState<UserRole>('frontdesk');
+  const [editRole, setEditRole] = useState<string>('frontdesk');
 
   const [deletingUser, setDeletingUser] = useState<UserAccount | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -62,6 +66,25 @@ export default function UserManagement({
   const [showImportModal, setShowImportModal] = useState(false);
   const [importSelections, setImportSelections] = useState<Record<string, string>>({});
   const [isImporting, setIsImporting] = useState(false);
+
+  const [activeTab, setActiveTab] = useState<'users' | 'roles'>('users');
+  const { roles } = useRoles();
+  const roleManagementAccess: ScreenAccessLevel = getScreenAccess(currentUser, roles, 'rolemanagement');
+  const showRolesTab = roleManagementAccess !== 'none';
+  const roleList = Object.values(roles).sort((a, b) => a.label.localeCompare(b.label));
+
+  const isExclusiveRoleKey = (roleKey?: string) => !!resolveRole(roleKey, roles)?.exclusiveVillaAssignment;
+
+  // Finds another user (not excludeUid) who holds `unit` via an exclusive-villa-assignment role,
+  // searching the given user list (so callers can check against an in-progress working copy).
+  const findUnitHolderIn = (list: UserAccount[], unit: string, excludeUid?: string): UserAccount | undefined => {
+    return list.find(u =>
+      (u.uid || u.username) !== excludeUid &&
+      isExclusiveRoleKey(u.role) &&
+      (u.assignedUnits || []).includes(unit)
+    );
+  };
+  const findUnitHolder = (unit: string, excludeUid?: string) => findUnitHolderIn(users, unit, excludeUid);
 
   const showToast = (message: string, type: 'info' | 'success' | 'error' = 'info') => {
     setToastNotification({ message, type });
@@ -228,6 +251,15 @@ export default function UserManagement({
   
   const saveVillas = async () => {
     if (!editingUser) return;
+    const targetIdForCheck = editingUser.uid || editingUser.username;
+    if (isExclusiveRoleKey(editRole)) {
+      const conflictUnit = editAssignedUnits.find(u => findUnitHolder(u, targetIdForCheck));
+      if (conflictUnit) {
+        const holder = findUnitHolder(conflictUnit, targetIdForCheck);
+        showToast(`"${conflictUnit}" is already assigned to ${holder?.firstName || holder?.username || 'another staff member'} — unassign it from them first.`, "error");
+        return;
+      }
+    }
     try {
       const targetId = editingUser.uid || editingUser.username;
       const updatedUser = { 
@@ -264,15 +296,26 @@ export default function UserManagement({
     setIsImporting(true);
     try {
       let updatedCount = 0;
+      const skippedConflicts: string[] = [];
       const nextUsers = [...users];
       for (const [managerName, targetId] of entries) {
         const group = VILLA_MANAGER_GROUPS.find(g => g.villaManager === managerName);
         if (!group) continue;
         const idx = nextUsers.findIndex(u => (u.uid || u.username) === targetId);
         if (idx === -1) continue;
-        const existingUnits = nextUsers[idx].assignedUnits || [];
-        const mergedUnits = Array.from(new Set([...existingUnits, ...group.units]));
-        const updatedUser: UserAccount = { ...nextUsers[idx], assignedUnits: mergedUnits };
+        const targetUser = nextUsers[idx];
+        const targetIsExclusive = isExclusiveRoleKey(targetUser.role);
+        const existingUnits = targetUser.assignedUnits || [];
+        let unitsToAdd = group.units.filter(u => !existingUnits.includes(u));
+        if (targetIsExclusive) {
+          const blocked = unitsToAdd.filter(u => findUnitHolderIn(nextUsers, u, targetId));
+          if (blocked.length > 0) {
+            skippedConflicts.push(`${managerName}: ${blocked.join(', ')}`);
+          }
+          unitsToAdd = unitsToAdd.filter(u => !findUnitHolderIn(nextUsers, u, targetId));
+        }
+        const mergedUnits = Array.from(new Set([...existingUnits, ...unitsToAdd]));
+        const updatedUser: UserAccount = { ...targetUser, assignedUnits: mergedUnits };
         await saveRecord('users', targetId, updatedUser);
         nextUsers[idx] = updatedUser;
         updatedCount++;
@@ -286,7 +329,11 @@ export default function UserManagement({
         }
       }
       setUsers(nextUsers);
-      showToast(`Applied villa assignments to ${updatedCount} staff member${updatedCount === 1 ? '' : 's'}.`, "success");
+      if (skippedConflicts.length > 0) {
+        showToast(`Applied, but some villas were skipped (already exclusively assigned to someone else): ${skippedConflicts.join(' | ')}`, "error");
+      } else {
+        showToast(`Applied villa assignments to ${updatedCount} staff member${updatedCount === 1 ? '' : 's'}.`, "success");
+      }
       setShowImportModal(false);
       setImportSelections({});
     } catch (e: any) {
@@ -297,6 +344,8 @@ export default function UserManagement({
   };
 
   const handleComplexToggle = (complex: string) => {
+    const editingIsExclusive = isExclusiveRoleKey(editRole);
+    const excludeUid = editingUser?.uid || editingUser?.username;
     setEditAssignedComplexes(prev => {
       const isSelected = prev.includes(complex);
       const newComplexes = isSelected ? prev.filter(c => c !== complex) : [...prev, complex];
@@ -304,7 +353,11 @@ export default function UserManagement({
       const unitsForComplex = unitsByComplex[complex] || [];
       if (!isSelected) {
         setEditAssignedUnits(prevUnits => {
-          const toAdd = unitsForComplex.filter(u => !prevUnits.includes(u));
+          const toAdd = unitsForComplex.filter(u => {
+            if (prevUnits.includes(u)) return false;
+            if (editingIsExclusive && findUnitHolder(u, excludeUid)) return false;
+            return true;
+          });
           return [...prevUnits, ...toAdd];
         });
       } else {
@@ -418,6 +471,30 @@ export default function UserManagement({
           </div>
         </div>
 
+        {/* Tab Bar */}
+        {showRolesTab && (
+          <div className="flex items-center gap-2 bg-white p-1.5 rounded-xl border border-slate-200 shadow-sm w-fit">
+            <button
+              onClick={() => setActiveTab('users')}
+              className={`px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 transition-colors ${
+                activeTab === 'users' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'
+              }`}
+            >
+              <Users className="w-4 h-4" /> Users
+            </button>
+            <button
+              onClick={() => setActiveTab('roles')}
+              className={`px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 transition-colors ${
+                activeTab === 'roles' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'
+              }`}
+            >
+              <Shield className="w-4 h-4" /> Roles
+            </button>
+          </div>
+        )}
+
+        {activeTab === 'users' && (
+        <>
         {/* Filter and Search Bar */}
         <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col sm:flex-row items-center gap-3">
           <div className="relative flex-1 w-full">
@@ -445,13 +522,13 @@ export default function UserManagement({
 
             <select
               value={roleFilter}
-              onChange={(e) => setRoleFilter(e.target.value as any)}
+              onChange={(e) => setRoleFilter(e.target.value)}
               className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
               <option value="all">All Roles</option>
-              <option value="admin">Admin</option>
-              <option value="supervisor">Supervisor</option>
-              <option value="frontdesk">Frontdesk</option>
+              {roleList.map(r => (
+                <option key={r.key} value={r.key}>{r.label}</option>
+              ))}
             </select>
           </div>
         </div>
@@ -672,7 +749,13 @@ export default function UserManagement({
             </div>
           </div>
         )}
+        </>
+        )}
       </div>
+
+      {activeTab === 'roles' && showRolesTab && (
+        <RoleManagement users={users} accessLevel={roleManagementAccess === 'full' ? 'full' : 'view'} />
+      )}
 
       {/* Delete User Confirmation Modal */}
       {deletingUser && (
@@ -751,13 +834,18 @@ export default function UserManagement({
                   <label className="block text-sm font-bold text-slate-800 mb-2">User Role</label>
                   <select 
                     value={editRole}
-                    onChange={(e) => setEditRole(e.target.value as UserRole)}
+                    onChange={(e) => setEditRole(e.target.value)}
                     className="w-full pl-3 pr-8 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
-                    <option value="frontdesk">Frontdesk</option>
-                    <option value="supervisor">Supervisor</option>
-                    <option value="admin">Admin</option>
+                    {roleList.map(r => (
+                      <option key={r.key} value={r.key}>{r.label}</option>
+                    ))}
                   </select>
+                  {isExclusiveRoleKey(editRole) && (
+                    <p className="text-[12px] text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-2.5 py-2 mt-2">
+                      This role requires exclusive villa assignment: each villa can belong to only one person holding such a role at a time. Villas already held by someone else are locked below — unassign them there first.
+                    </p>
+                  )}
                 </div>
               )}
 
@@ -768,12 +856,18 @@ export default function UserManagement({
                     {c}
                   </label>
                   <div className="pl-8 grid grid-cols-2 sm:grid-cols-3 gap-3">
-                    {unitsByComplex[c]?.map(u => (
-                      <label key={u} className="flex items-center gap-2 text-sm text-slate-600 cursor-pointer font-medium hover:text-slate-900 transition-colors">
-                        <input type="checkbox" checked={editAssignedUnits.includes(u)} onChange={() => handleUnitToggle(u)} className="rounded text-blue-600 w-4 h-4" />
-                        {u}
-                      </label>
-                    ))}
+                    {unitsByComplex[c]?.map(u => {
+                      const holder = isExclusiveRoleKey(editRole) ? findUnitHolder(u, editingUser?.uid || editingUser?.username) : undefined;
+                      return (
+                        <label key={u} className={`flex items-center gap-2 text-sm cursor-pointer font-medium transition-colors ${holder ? 'text-slate-400 cursor-not-allowed' : 'text-slate-600 hover:text-slate-900'}`}>
+                          <input type="checkbox" checked={editAssignedUnits.includes(u)} disabled={!!holder} onChange={() => handleUnitToggle(u)} className="rounded text-blue-600 w-4 h-4 disabled:opacity-40" />
+                          <span>{u}</span>
+                          {holder && (
+                            <span className="text-[10px] text-amber-700 font-semibold">(held by {holder.firstName || holder.username})</span>
+                          )}
+                        </label>
+                      );
+                    })}
                   </div>
                 </div>
               ))}
@@ -895,6 +989,9 @@ export default function UserManagement({
                 const knownUnits = new Set(Object.values(unitsByComplex).flat());
                 const matchedUnits = group.units.filter(u => knownUnits.has(u));
                 const unmatchedUnits = group.units.filter(u => !knownUnits.has(u));
+                const selectedTargetId = importSelections[group.villaManager];
+                const selectedTarget = selectedTargetId ? users.find(u => (u.uid || u.username) === selectedTargetId) : undefined;
+                const targetIsExclusive = selectedTarget ? isExclusiveRoleKey(selectedTarget.role) : false;
                 return (
                   <div key={group.villaManager} className="border border-slate-200 rounded-lg p-4 bg-slate-50/50">
                     <div className="flex flex-col sm:flex-row sm:items-center gap-3 justify-between">
@@ -919,9 +1016,18 @@ export default function UserManagement({
                       </div>
                     </div>
                     <div className="mt-3 flex flex-wrap gap-1.5">
-                      {matchedUnits.map(u => (
-                        <span key={u} className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-700 text-[11px] font-semibold">{u}</span>
-                      ))}
+                      {matchedUnits.map(u => {
+                        const holder = targetIsExclusive ? findUnitHolder(u, selectedTargetId) : undefined;
+                        return (
+                          <span
+                            key={u}
+                            className={`px-2 py-0.5 rounded text-[11px] font-semibold ${holder ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-700'}`}
+                            title={holder ? `Already assigned to ${holder.firstName || holder.username || 'another staff member'} (exclusive role) — unassign it there first, or it will be skipped on apply.` : undefined}
+                          >
+                            {u}{holder ? ' (held elsewhere)' : ''}
+                          </span>
+                        );
+                      })}
                       {unmatchedUnits.map(u => (
                         <span key={u} className="px-2 py-0.5 rounded bg-amber-100 text-amber-700 text-[11px] font-semibold" title="Not found among the system's known units/complexes">{u} (unrecognized)</span>
                       ))}
