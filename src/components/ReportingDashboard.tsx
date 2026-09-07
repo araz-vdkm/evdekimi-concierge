@@ -4,6 +4,7 @@ import { db, getAccessToken, getGoogleToken } from '../lib/auth';
 import { normalizeActiveReservations } from '../lib/reservationUtils';
 import { saveRecord } from '../lib/db';
 import { UserAccount } from '../types';
+import { useRoles, resolveRole, isSuperuserAccount } from '../lib/roles';
 import {
   ChevronLeft,
   Calendar,
@@ -98,6 +99,15 @@ function toDateInputValue(d: Date): string {
 
 export default function ReportingDashboard({ currentUser, onBackToHome }: ReportingDashboardProps) {
   const [activeTab, setActiveTab] = useState<'activity' | 'upsell' | 'staffkpi'>('activity');
+  const { roles } = useRoles();
+  const isFullReporting = isSuperuserAccount(currentUser, roles) || resolveRole(currentUser?.role, roles)?.key === 'admin';
+
+  // Anyone else granted Reporting access (e.g. a Villa Manager) only ever sees
+  // their own Staff KPI card - never the portfolio-wide Activity Log or Upsell
+  // Analytics tabs, and never other people's cards.
+  useEffect(() => {
+    if (!isFullReporting) setActiveTab('staffkpi');
+  }, [isFullReporting]);
   const [entries, setEntries] = useState<LogEntry[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -414,6 +424,7 @@ export default function ReportingDashboard({ currentUser, onBackToHome }: Report
       </div>
 
       {/* Tab bar */}
+      {isFullReporting && (
       <div className="flex items-center gap-1.5 mb-5 bg-slate-100 p-1 rounded-xl w-fit">
         <button
           onClick={() => setActiveTab('activity')}
@@ -440,8 +451,9 @@ export default function ReportingDashboard({ currentUser, onBackToHome }: Report
           Staff KPI
         </button>
       </div>
+      )}
 
-      {activeTab === 'activity' && (
+      {isFullReporting && activeTab === 'activity' && (
       <>
       {/* Date range filter */}
       <div className="bg-white border border-slate-200 rounded-2xl p-4 mb-5 flex flex-wrap items-center gap-3.5">
@@ -673,8 +685,13 @@ export default function ReportingDashboard({ currentUser, onBackToHome }: Report
       </>
       )}
 
-      {activeTab === 'upsell' && <UpsellAnalyticsPanel currentUser={currentUser} />}
-      {activeTab === 'staffkpi' && <StaffKpiPanel currentUser={currentUser} />}
+      {isFullReporting && activeTab === 'upsell' && <UpsellAnalyticsPanel currentUser={currentUser} />}
+      {activeTab === 'staffkpi' && (
+        <StaffKpiPanel
+          currentUser={currentUser}
+          restrictToUid={isFullReporting ? undefined : (currentUser?.uid || currentUser?.username)}
+        />
+      )}
     </div>
   );
 }
