@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { collection, onSnapshot, getDocs } from 'firebase/firestore';
-import { db } from '../lib/auth';
+import { db, getAccessToken, getGoogleToken } from '../lib/auth';
 import { saveRecord } from '../lib/db';
 import { UserAccount } from '../types';
 import {
@@ -14,7 +14,8 @@ import {
   ClipboardCheck,
   ClipboardList,
   Filter,
-  History
+  History,
+  Info
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import UpsellAnalyticsPanel from './UpsellAnalyticsPanel';
@@ -40,6 +41,26 @@ interface LogEntry {
   errorMessage?: string;
   timestamp?: string;
 }
+
+interface PortfolioReservation {
+  id: string;
+  confirmationCode?: string;
+  checkInDate?: string;
+  checkOutDate?: string;
+}
+
+const DATE_FIELD_BY_TYPE: Record<ActivityType, 'checkInDate' | 'checkOutDate'> = {
+  registration: 'checkInDate',
+  pre_checkin: 'checkInDate',
+  post_checkout: 'checkOutDate'
+};
+
+// The live reservations feed (see server.ts syncReservations) only retains a
+// rolling window of roughly 7 days in the past through 30 days ahead. "Should"
+// counts below can only be trusted for a selected period fully inside that
+// window - outside it we say so instead of showing a misleading number.
+const FEED_WINDOW_DAYS_PAST = 7;
+const FEED_WINDOW_DAYS_FUTURE = 30;
 
 type PeriodPreset = 'today' | '7d' | '30d' | 'month' | 'all' | 'custom';
 
@@ -80,6 +101,8 @@ export default function ReportingDashboard({ currentUser, onBackToHome }: Report
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isBackfilling, setIsBackfilling] = useState(false);
 
+  const [reservations, setReservations] = useState<PortfolioReservation[]>([]);
+
   const [preset, setPreset] = useState<PeriodPreset>('30d');
   const [customFrom, setCustomFrom] = useState<string>(toDateInputValue(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)));
   const [customTo, setCustomTo] = useState<string>(toDateInputValue(new Date()));
@@ -115,6 +138,32 @@ export default function ReportingDashboard({ currentUser, onBackToHome }: Report
     return () => {
       if (unsub) unsub();
     };
+  }, []);
+
+  // Portfolio-wide reservations feed, used only to compute the "should have
+  // happened" counts on the stat cards below (same source StaffKpiPanel uses).
+  const fetchReservations = async (refresh: boolean = false) => {
+    try {
+      const token = await getAccessToken().catch(() => 'dummy-token');
+      const url = refresh ? `/api/reservations?refresh=true` : `/api/reservations`;
+      const res = await fetch(url, {
+        headers: { Authorization: `Bearer ${token}`, 'x-google-oauth-token': getGoogleToken() }
+      });
+      if (res.ok && res.headers.get('content-type')?.includes('application/json')) {
+        const data = await res.json();
+        const list = Array.isArray(data) ? data : (data.reservations || data.data || []);
+        setReservations(list);
+      }
+    } catch (e) {
+      console.warn('Failed to load reservations for Activity Log stat cards:', e);
+    }
+  };
+
+  useEffect(() => {
+    fetchReservations();
+    const handleRefresh = () => fetchReservations(true);
+    window.addEventListener('refresh-data', handleRefresh);
+    return () => window.removeEventListener('refresh-data', handleRefresh);
   }, []);
 
   const { rangeStart, rangeEnd } = useMemo(() => {
@@ -190,6 +239,34 @@ export default function ReportingDashboard({ currentUser, onBackToHome }: Report
     });
     return byType;
   }, [dateRangedEntries]);
+
+  // Whether the selected period is fully inside the reservations feed's
+  // rolling coverage window, i.e. whether "should" counts can be trusted.
+  const feedCoversRange = useMemo(() => {
+    if (!rangeStart || !rangeEnd) return false; // 'all' time has no fixed bound to check
+    const now = new Date();
+    const feedStart = new Date(now.getTime() - FEED_WINDOW_DAYS_PAST * 24 * 60 * 60 * 1000);
+    const feedEnd = new Date(now.getTime() + FEED_WINDOW_DAYS_FUTURE * 24 * 60 * 60 * 1000);
+    return rangeStart.getTime() >= feedStart.getTime() && rangeEnd.getTime() <= feedEnd.getTime();
+  }, [rangeStart, rangeEnd]);
+
+  // Portfolio-wide "should have happened" counts: every reservation (regardless
+  // of who's assigned) whose relevant date falls inside the selected period.
+  const shouldCounts = useMemo(() => {
+    const counts: Record<ActivityType, number> = { registration: 0, pre_checkin: 0, post_checkout: 0 };
+    if (!feedCoversRange || !rangeStart || !rangeEnd) return counts;
+    (Object.keys(DATE_FIELD_BY_TYPE) as ActivityType[]).forEach((type) => {
+      const field = DATE_FIELD_BY_TYPE[type];
+      counts[type] = reservations.filter((r) => {
+        const raw = r[field];
+        if (!raw) return false;
+        const d = new Date(raw);
+        if (isNaN(d.getTime())) return false;
+        return d >= rangeStart && d <= rangeEnd;
+      }).length;
+    });
+    return counts;
+  }, [reservations, rangeStart, rangeEnd, feedCoversRange]);
 
   const handleRefresh = () => {
     setIsRefreshing(true);
@@ -430,7 +507,32 @@ export default function ReportingDashboard({ currentUser, onBackToHome }: Report
                 </div>
                 <span className="text-sm font-bold text-slate-600">{title}</span>
               </div>
-              <div className="text-[34px] font-extrabold text-slate-900 tracking-tight mb-2.5">{s.total}</div>
+              <div className="flex items-baseline gap-2 mb-1">
+                <div className="text-[34px] font-extrabold text-slate-900 tracking-tight">{s.total}</div>
+                {feedCoversRange && (
+                  <div className="text-sm font-semibold text-slate-400">of {shouldCounts[type]} expected</div>
+                )}
+              </div>
+              <div
+                className="text-[11.5px] text-slate-400 font-medium mb-2.5 flex items-center gap-1"
+                title={'"Expected" counts every reservation across all villas whose check-in/check-out date falls in this period, regardless of who is assigned. It only reflects the live reservations feed, which retains roughly 7 days in the past through 30 days ahead.'}
+              >
+                {feedCoversRange ? (
+                  <>
+                    <Info className="w-3 h-3 shrink-0" />
+                    <span>
+                      {shouldCounts[type] > 0
+                        ? `${Math.round((s.total / shouldCounts[type]) * 100)}% of portfolio done this period`
+                        : 'no reservations required in the selected period'}
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <Info className="w-3 h-3 shrink-0" />
+                    <span>{'"Expected" count unavailable outside the ~37-day reservations window'}</span>
+                  </>
+                )}
+              </div>
               <div className="flex items-center gap-4">
                 <div className="flex items-center gap-1.5">
                   <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
