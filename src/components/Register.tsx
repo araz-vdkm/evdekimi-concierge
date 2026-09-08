@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { EvdekimiLogo } from './EvdekimiLogo';
 import { User, Mail, Phone, Building, ShieldCheck, FileText, Loader2, ArrowLeft, CheckCircle2, Clock, ShieldAlert } from 'lucide-react';
 import { db, signInWithSocial, isSuperUserEmail } from '../lib/auth';
-import { saveRecord, getRecord } from '../lib/db';
+import { saveRecord, getRecord, saveConciergeUserSession } from '../lib/db';
 import PrivacyPolicyModal from './PrivacyPolicyModal';
 import TermsOfServiceModal from './TermsOfServiceModal';
 
@@ -99,7 +99,7 @@ export default function Register({ onBack, onComplete, pendingSocialUser }: { on
           throw new Error('Your account is waiting for approval by Super Admin (roman@evdekimi.com). You cannot log in until approved.');
         }
         localStorage.setItem('conciergeAuth', 'oauth');
-        localStorage.setItem('conciergeUser', JSON.stringify(existingUserData));
+        saveConciergeUserSession(existingUserData);
         onComplete(existingUserData);
         return;
       }
@@ -156,7 +156,7 @@ export default function Register({ onBack, onComplete, pendingSocialUser }: { on
 
       if (isSuperUser) {
         localStorage.setItem('conciergeAuth', 'oauth');
-        localStorage.setItem('conciergeUser', JSON.stringify(newUserData));
+        saveConciergeUserSession(newUserData);
         onComplete(newUserData);
       } else {
         // Clear any lingering session cache to ensure pending user cannot bypass
