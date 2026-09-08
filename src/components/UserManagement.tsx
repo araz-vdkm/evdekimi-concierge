@@ -27,7 +27,7 @@ import {
 } from 'lucide-react';
 import { UserAccount, ScreenAccessLevel } from '../types';
 import { VILLA_MANAGER_GROUPS } from '../data/villaManagerMapping';
-import { useRoles, getScreenAccess, resolveRole, isSuperuserAccount } from '../lib/roles';
+import { useRoles, getScreenAccess, resolveRole, isSuperuserAccount, canEditScreen } from '../lib/roles';
 import RoleManagement from './RoleManagement';
 
 export default function UserManagement({ 
@@ -831,7 +831,7 @@ export default function UserManagement({
             </div>
             
             <div className="p-6 overflow-y-auto flex-1 space-y-6">
-              {isSuperUserEmail(currentUser?.email) && (
+              {canEditScreen(currentUser, roles, 'usermanagement') && (
                 <div className="border border-slate-200 rounded-lg p-4 bg-white">
                   <label className="block text-sm font-bold text-slate-800 mb-2">User Role</label>
                   <select 
