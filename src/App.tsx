@@ -486,7 +486,7 @@ export default function App() {
       </header>
 
       <main className="flex-1 overflow-auto flex flex-col">
-        {currentView === 'home' && canView('home') && <Home onSelectView={(view, data) => { setCurrentView(view); if (data) setCheckinData(data); else setCheckinData(null); }} isAdmin={isSuperuser} userRole={effectiveUser?.role} currentUser={effectiveUser} canEdit={canEditHome} />}
+        {currentView === 'home' && canView('home') && <Home onSelectView={(view, data) => { setCurrentView(view); if (data) setCheckinData(data); else setCheckinData(null); }} isSuperuser={isSuperuser} userRole={effectiveUser?.role} currentUser={effectiveUser} canEdit={canEditHome} />}
         {currentView === 'checkin' && canView('home') && (
           spreadsheetId ? (
             <CheckInFlow spreadsheetId={spreadsheetId} onComplete={() => setCurrentView('home')} initialBooking={checkinData} currentUser={effectiveUser} />

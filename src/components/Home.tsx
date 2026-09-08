@@ -8,14 +8,14 @@ import { isReservationAssignedToUser, resolveReservationProperty, matchesPropert
 
 interface HomeProps {
   onSelectView: (view: 'checkin' | 'pre_checkin' | 'post_checkout' | 'dashboard' | 'maintenance' | 'usermanagement' | 'minibar' | 'qatesting', data?: any) => void;
-  isAdmin: boolean;
+  isSuperuser: boolean;
   userRole?: string;
   currentUser?: any;
   canEdit?: boolean;
 }
 
 
-export default function Home({ onSelectView, isAdmin, userRole, currentUser, canEdit = true }: HomeProps) {
+export default function Home({ onSelectView, isSuperuser, userRole, currentUser, canEdit = true }: HomeProps) {
   const [connectedConciergeEmail, setConnectedConciergeEmail] = useState<string>(() => {
     return localStorage.getItem("concierge_connected_email") || (localStorage.getItem("googleOAuthToken") ? "concierge@evdekimi.com" : "");
   });
@@ -613,7 +613,7 @@ export default function Home({ onSelectView, isAdmin, userRole, currentUser, can
                           <span className="truncate">{isPostCheckOutDone ? 'Checkout Report Done' : 'Post Check-out Report'}</span>
                         </button>
                         
-                        {userRole !== 'supervisor' && (
+                        {(isSuperuser || userRole === 'admin') && (
                         <button
                           onClick={() => {
                             const surveyUrl = `https://forms.gle/joBC1gteqn14A1Hs6`;
