@@ -543,7 +543,6 @@ export default function PostCheckOutFlow({ onComplete, initialBooking, currentUs
               <input 
                 type="file" 
                 accept="image/*" 
-                capture="environment"
                 onChange={handleMinibarPhotoAdd}
                 className="hidden"
               />

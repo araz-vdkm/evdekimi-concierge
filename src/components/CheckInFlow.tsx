@@ -132,6 +132,18 @@ export default function CheckInFlow({ spreadsheetId, onComplete, initialBooking,
     fetchExistingData();
   }, [initialBooking?.id]);
 
+  const retakePassport = useCallback(() => {
+    // Clear the captured photo (and whatever passport-analysis fields came
+    // with it) so the live camera view remounts - the button reads
+    // "Retake Passport" only while photoBase64 is set, so this always runs
+    // before the next actual capture.
+    setGuestsDetails(prev => {
+      const updated = [...prev];
+      updated[currentGuestIndex] = {};
+      return updated;
+    });
+  }, [currentGuestIndex]);
+
   const capturePassport = useCallback(async () => {
     if (!webcamRef.current) return;
     const imageSrc = webcamRef.current.getScreenshot();
@@ -605,7 +617,7 @@ export default function CheckInFlow({ spreadsheetId, onComplete, initialBooking,
               </button>
             )}
             <button
-              onClick={capturePassport}
+              onClick={guestsDetails[currentGuestIndex]?.photoBase64 ? retakePassport : capturePassport}
               disabled={isProcessing}
               className="flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-8 py-3 rounded-lg font-bold shadow-md shadow-blue-200 transition-colors w-full sm:w-auto disabled:opacity-70"
             >
@@ -614,7 +626,7 @@ export default function CheckInFlow({ spreadsheetId, onComplete, initialBooking,
             </button>
             <div className="text-slate-400 text-sm">or</div>
             <label className={`flex items-center justify-center gap-2 bg-white border border-slate-200 text-slate-600 px-6 py-3 rounded-lg font-bold transition-colors w-full sm:w-auto ${isProcessing ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:bg-slate-50'}`}>
-              <input type="file" accept="image/*" capture="environment" onChange={handleManualScan} disabled={isProcessing} className="hidden" />
+              <input type="file" accept="image/*" onChange={handleManualScan} disabled={isProcessing} className="hidden" />
               Upload Image
             </label>
             

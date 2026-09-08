@@ -518,7 +518,6 @@ const handleRemovePhoto = (sectionId: string, itemId: string, photoIndex: number
               <input 
                 type="file" 
                 accept="image/*" 
-                capture="environment"
                 onChange={handleMinibarPhotoAdd}
                 className="hidden"
               />
