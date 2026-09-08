@@ -27,7 +27,7 @@ import {
 } from 'lucide-react';
 import { UserAccount, ScreenAccessLevel } from '../types';
 import { VILLA_MANAGER_GROUPS } from '../data/villaManagerMapping';
-import { useRoles, getScreenAccess, resolveRole } from '../lib/roles';
+import { useRoles, getScreenAccess, resolveRole, isSuperuserAccount } from '../lib/roles';
 import RoleManagement from './RoleManagement';
 
 export default function UserManagement({ 
@@ -642,12 +642,14 @@ export default function UserManagement({
 
                         <td className="px-6 py-4">
                           <div className="flex items-center gap-2 mb-1">
-                            <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold capitalize ${
+                            <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${
                               user.role === 'admin' ? 'bg-purple-100 text-purple-700 border border-purple-200' :
                               user.role === 'supervisor' ? 'bg-blue-100 text-blue-700 border border-blue-200' :
                               'bg-emerald-100 text-emerald-700 border border-emerald-200'
                             }`}>
-                              {user.role === 'supervisor' ? 'Supervisor (Minibar Entry Only)' : user.role}
+                              {user.role === 'supervisor'
+                                ? `${resolveRole(user.role, roles)?.label || 'Supervisor'} (Minibar Entry Only)`
+                                : (resolveRole(user.role, roles)?.label || user.role)}
                             </span>
                           </div>
                           <div className="text-slate-600 font-medium text-xs">{user.company || 'ConciergePro Staff'}</div>
@@ -670,7 +672,7 @@ export default function UserManagement({
                         </td>
 
                         <td className="px-6 py-4">
-                          {(isSuperUserEmail(currentUser?.email) || user.role === 'supervisor' || user.role === 'frontdesk') ? (
+                          {!(isSuperuserAccount(user, roles) || resolveRole(user.role, roles)?.key === 'admin') ? (
                             <div>
                               <div className="text-xs text-slate-600 mb-1">
                                 <strong>{user.assignedComplexes?.length || 0}</strong> complexes, <strong>{user.assignedUnits?.length || 0}</strong> units
