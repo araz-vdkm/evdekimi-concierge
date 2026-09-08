@@ -22,7 +22,7 @@ export default function Home({ onSelectView, isSuperuser, userRole, currentUser,
 
   const [allReservations, setAllReservations] = useState<any[]>([]);
   const [selectedVillaFilter, setSelectedVillaFilter] = useState<string>('All');
-  const [selectedDateFilter, setSelectedDateFilter] = useState<'all' | 'today' | 'tomorrow'>('all');
+  const [selectedDateFilter, setSelectedDateFilter] = useState<'all' | 'yesterday' | 'today' | 'tomorrow'>('all');
   const [arrivals, setArrivals] = useState<any[]>([]);
   const [departures, setDepartures] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -111,14 +111,21 @@ export default function Home({ onSelectView, isSuperuser, userRole, currentUser,
     const tmDay = String(tomorrow.getDate()).padStart(2, '0');
     const tomorrowStr = `${tmYear}-${tmMonth}-${tmDay}`;
 
+    const yesterday = new Date(localDate);
+    yesterday.setDate(localDate.getDate() - 1);
+    const ydYear = yesterday.getFullYear();
+    const ydMonth = String(yesterday.getMonth() + 1).padStart(2, '0');
+    const ydDay = String(yesterday.getDate()).padStart(2, '0');
+    const yesterdayStr = `${ydYear}-${ydMonth}-${ydDay}`;
+
     let arr = activeReservations.filter((r: any) => {
       const ci = r.checkInDate || r.checkIn || '';
-      return ci === todayStr || ci === tomorrowStr;
+      return ci === yesterdayStr || ci === todayStr || ci === tomorrowStr;
     });
 
     let dep = activeReservations.filter((r: any) => {
       const co = r.checkOutDate || r.checkOut || '';
-      return co === todayStr || co === tomorrowStr;
+      return co === yesterdayStr || co === todayStr || co === tomorrowStr;
     });
 
     setArrivals(arr);
@@ -398,6 +405,13 @@ export default function Home({ onSelectView, isSuperuser, userRole, currentUser,
   const tmDay = String(tomorrow.getDate()).padStart(2, '0');
   const tomorrowStr = `${tmYear}-${tmMonth}-${tmDay}`;
 
+  const yesterday = new Date(localDate);
+  yesterday.setDate(localDate.getDate() - 1);
+  const ydYear = yesterday.getFullYear();
+  const ydMonth = String(yesterday.getMonth() + 1).padStart(2, '0');
+  const ydDay = String(yesterday.getDate()).padStart(2, '0');
+  const yesterdayStr = `${ydYear}-${ydMonth}-${ydDay}`;
+
   const allDisplayedRes = [...arrivals, ...departures];
   const uniqueVillasSet = new Set<string>();
   allDisplayedRes.forEach((r: any) => {
@@ -415,6 +429,7 @@ export default function Home({ onSelectView, isSuperuser, userRole, currentUser,
       if (!matchesVilla) return false;
 
       const dateStr = r[dateField === 'checkIn' ? 'checkInDate' : 'checkOutDate'] || r[dateField] || '';
+      if (selectedDateFilter === 'yesterday') return dateStr === yesterdayStr;
       if (selectedDateFilter === 'today') return dateStr === todayStr;
       if (selectedDateFilter === 'tomorrow') return dateStr === tomorrowStr;
       return dateStr === todayStr || dateStr === tomorrowStr;
@@ -483,6 +498,7 @@ export default function Home({ onSelectView, isSuperuser, userRole, currentUser,
               className="px-3 py-1.5 border border-slate-300 rounded-lg text-sm font-medium text-slate-700 bg-white hover:border-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm transition-colors cursor-pointer"
             >
               <option value="all">2-Day Window (Today & Tomorrow)</option>
+              <option value="yesterday">Yesterday Only ({yesterdayStr})</option>
               <option value="today">Today Only ({todayStr})</option>
               <option value="tomorrow">Tomorrow Only ({tomorrowStr})</option>
             </select>
