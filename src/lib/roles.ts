@@ -142,7 +142,19 @@ export function getScreenAccess(
   if (isSuperUserEmail(user.email)) return 'full';
   const role = resolveRole(user.role, roles);
   if (role?.isSuperuser) return 'full';
-  return role?.screens?.[screen] || 'none';
+  const explicit = role?.screens?.[screen];
+  if (explicit) return explicit;
+  // A screen added after this role was last seeded/saved won't have a key in
+  // its stored `screens` map yet (Firestore docs aren't retroactively
+  // migrated). For a built-in role, fall back to today's built-in default for
+  // that screen instead of silently treating "never migrated" as "denied" -
+  // otherwise admin/superuser get locked out of every newly added screen
+  // until someone happens to re-save that role in Role Management.
+  if (role?.isBuiltIn) {
+    const builtIn = DEFAULT_ROLES.find((r) => r.key === role.key);
+    return builtIn?.screens?.[screen] || 'none';
+  }
+  return 'none';
 }
 
 export function canViewScreen(user: Pick<UserAccount, 'role' | 'email'> | null | undefined, roles: Record<string, RoleDefinition>, screen: ScreenKey): boolean {
