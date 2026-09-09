@@ -1,3 +1,5 @@
+import { safeSetItem } from './lib/safeStorage';
+import { saveConciergeUserSession } from './lib/db';
 import { get as idbGet, set as idbSet, del as idbDel } from 'idb-keyval';
 import React, { useState, useEffect, useRef } from 'react';
 import CheckInFlow from './components/CheckInFlow';
@@ -56,7 +58,7 @@ export default function App() {
             setCurrentUser(userData as UserAccount);
             setNeedsAuth(false);
             setToken('dummy-token');
-            localStorage.setItem('conciergeUser', JSON.stringify(userData));
+            saveConciergeUserSession(userData);
           } else if (localSessionUser && !localSessionUser.isBlocked && (localSessionUser.isApproved === true || isSuperUserEmail(localSessionUser.email))) {
             // Keep active staff session when connecting external Gmail OAuth account
             setCurrentUser(localSessionUser);
@@ -161,7 +163,7 @@ export default function App() {
     getRecord('config', 'global_spreadsheet').then((config) => {
       if (config && config.spreadsheetId) {
         setSpreadsheetId(config.spreadsheetId);
-        localStorage.setItem('conciergeSpreadsheetId', config.spreadsheetId);
+        safeSetItem('conciergeSpreadsheetId', config.spreadsheetId);
       } else {
         const localId = localStorage.getItem('conciergeSpreadsheetId');
         if (localId && localId !== 'mock-spreadsheet-id') {
@@ -208,7 +210,7 @@ export default function App() {
                 if (freshUser.isBlocked) alert('Your account has been suspended/blocked. Please contact support.');
               } else {
                 setCurrentUser(freshUser);
-                localStorage.setItem('conciergeUser', JSON.stringify(freshUser));
+                saveConciergeUserSession(freshUser);
               }
             }
           }).catch(() => {});
@@ -226,7 +228,7 @@ export default function App() {
           const config = await getRecord('config', 'global_spreadsheet');
           if (config && config.spreadsheetId) {
             setSpreadsheetId(config.spreadsheetId);
-            localStorage.setItem('conciergeSpreadsheetId', config.spreadsheetId);
+            safeSetItem('conciergeSpreadsheetId', config.spreadsheetId);
             return;
           }
           await initSheet(token);
@@ -251,7 +253,7 @@ export default function App() {
       setSpreadsheetId((current) => {
         if (current) return current;
         console.warn('Sheet init timed out, falling back to mock storage.');
-        localStorage.setItem('conciergeSpreadsheetId', 'mock-spreadsheet-id');
+        safeSetItem('conciergeSpreadsheetId', 'mock-spreadsheet-id');
         return 'mock-spreadsheet-id';
       });
     }, 6000);
@@ -268,7 +270,7 @@ export default function App() {
       const data = await res.json();
       if (data.spreadsheetId) {
         setSpreadsheetId(data.spreadsheetId);
-        localStorage.setItem('conciergeSpreadsheetId', data.spreadsheetId);
+        safeSetItem('conciergeSpreadsheetId', data.spreadsheetId);
         if (data.spreadsheetId !== 'mock-spreadsheet-id') {
           saveRecord('config', 'global_spreadsheet', { spreadsheetId: data.spreadsheetId }).catch(() => {});
         }
@@ -376,7 +378,7 @@ export default function App() {
         onRegisterClick={() => setShowRegister(true)} 
         onLoginSuccess={(user) => {
           localStorage.setItem('conciergeAuth', 'oauth');
-          localStorage.setItem('conciergeUser', JSON.stringify(user));
+          saveConciergeUserSession(user);
           setCurrentUser(user);
           setNeedsAuth(false);
           setToken('dummy-token');

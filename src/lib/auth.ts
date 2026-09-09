@@ -1,5 +1,6 @@
+import { safeSetItem } from './safeStorage';
 import { initializeApp } from "firebase/app";
-import { getAuth, signInWithPopup, GoogleAuthProvider, OAuthProvider, onAuthStateChanged, User, createUserWithEmailAndPassword, signInWithEmailAndPassword, sendEmailVerification, signOut, setPersistence, browserLocalPersistence } from "firebase/auth";
+import { getAuth, signInWithPopup, GoogleAuthProvider, OAuthProvider, onAuthStateChanged, User, createUserWithEmailAndPassword, signInWithEmailAndPassword, sendEmailVerification, signOut, setPersistence, browserLocalPersistence, indexedDBLocalPersistence } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
 import firebaseConfig from "../../firebase-applet-config.json";
@@ -7,15 +8,20 @@ import firebaseConfig from "../../firebase-applet-config.json";
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 
-// Defensive: Firebase's default persistence tries IndexedDB first
-// (indexedDBLocalPersistence). In some browsers/environments (Safari private
-// browsing, in-app WebViews like Instagram/LinkedIn, storage-restricted
-// contexts) IndexedDB itself throws (e.g. "Database is closing"), which
-// surfaces as a hard login failure. Explicitly using browserLocalPersistence
-// (localStorage-backed, no IndexedDB dependency) avoids that whole class of
-// failures for auth session storage.
-setPersistence(auth, browserLocalPersistence).catch((e) => {
-  console.warn('Failed to set browserLocalPersistence, falling back to SDK default:', e);
+// Prefer IndexedDB-backed persistence: its storage quota scales with
+// available disk space, so the auth session token never has to compete for
+// room with the app's own bulk local caches (src/lib/db.ts) the way a
+// shared localStorage quota does -- that contention was silently logging
+// users back out on every page reload once localStorage filled up. Fall
+// back to browserLocalPersistence only if IndexedDB itself throws (Safari
+// private browsing, in-app WebViews like Instagram/LinkedIn, other
+// storage-restricted contexts) -- the exact failure mode the previous
+// unconditional browserLocalPersistence choice was guarding against.
+setPersistence(auth, indexedDBLocalPersistence).catch((e) => {
+  console.warn('Failed to set indexedDBLocalPersistence, falling back to browserLocalPersistence:', e);
+  setPersistence(auth, browserLocalPersistence).catch((e2) => {
+    console.warn('Failed to set browserLocalPersistence, falling back to SDK default:', e2);
+  });
 });
 
 const firestoreDbId = (firebaseConfig as any).firestoreDatabaseId;
@@ -79,9 +85,9 @@ export const googleSignIn = async (): Promise<{ user: User; accessToken: string 
     }
 
     cachedAccessToken = credential.accessToken;
-    localStorage.setItem('googleOAuthToken', cachedAccessToken);
+    safeSetItem('googleOAuthToken', cachedAccessToken);
     if (result.user?.email) {
-      localStorage.setItem('concierge_connected_email', result.user.email);
+      safeSetItem('concierge_connected_email', result.user.email);
     }
     return { user: result.user, accessToken: cachedAccessToken };
   } catch (error: any) {
@@ -145,9 +151,9 @@ export const signInWithSocial = async (providerName) => {
       const credential = GoogleAuthProvider.credentialFromResult(result);
       if (credential?.accessToken) {
         cachedAccessToken = credential.accessToken;
-        localStorage.setItem('googleOAuthToken', cachedAccessToken);
+        safeSetItem('googleOAuthToken', cachedAccessToken);
         if (result.user?.email) {
-          localStorage.setItem('concierge_connected_email', result.user.email);
+          safeSetItem('concierge_connected_email', result.user.email);
         }
       }
     }

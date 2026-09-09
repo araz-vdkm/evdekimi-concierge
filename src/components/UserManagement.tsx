@@ -1,3 +1,4 @@
+import { saveConciergeUserSession } from '../lib/db';
 import React, { useState, useEffect } from 'react';
 import { collection, getDocs, doc, setDoc, deleteDoc } from 'firebase/firestore';
 import { saveRecord, deleteRecord, purgeAllOperationalData } from '../lib/db';
@@ -276,7 +277,7 @@ export default function UserManagement({
         currentUser && 
         (targetId === currentUser.uid || targetId === currentUser.username || updatedUser.email?.toLowerCase() === currentUser.email?.toLowerCase())
       ) {
-        localStorage.setItem('conciergeUser', JSON.stringify(updatedUser));
+        saveConciergeUserSession(updatedUser);
         window.dispatchEvent(new CustomEvent('user-updated', { detail: updatedUser }));
       }
 
@@ -324,7 +325,7 @@ export default function UserManagement({
           currentUser &&
           (targetId === currentUser.uid || targetId === currentUser.username || updatedUser.email?.toLowerCase() === currentUser.email?.toLowerCase())
         ) {
-          localStorage.setItem('conciergeUser', JSON.stringify(updatedUser));
+          saveConciergeUserSession(updatedUser);
           window.dispatchEvent(new CustomEvent('user-updated', { detail: updatedUser }));
         }
       }

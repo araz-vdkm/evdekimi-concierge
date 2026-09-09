@@ -1,3 +1,4 @@
+import { saveConciergeUserSession } from '../lib/db';
 import { collection, getDocs } from 'firebase/firestore';
 import React, { useState, useEffect } from 'react';
 import { EvdekimiLogo } from './EvdekimiLogo';
@@ -99,7 +100,7 @@ export default function Register({ onBack, onComplete, pendingSocialUser }: { on
           throw new Error('Your account is waiting for approval by Super Admin (roman@evdekimi.com). You cannot log in until approved.');
         }
         localStorage.setItem('conciergeAuth', 'oauth');
-        localStorage.setItem('conciergeUser', JSON.stringify(existingUserData));
+        saveConciergeUserSession(existingUserData);
         onComplete(existingUserData);
         return;
       }
@@ -156,7 +157,7 @@ export default function Register({ onBack, onComplete, pendingSocialUser }: { on
 
       if (isSuperUser) {
         localStorage.setItem('conciergeAuth', 'oauth');
-        localStorage.setItem('conciergeUser', JSON.stringify(newUserData));
+        saveConciergeUserSession(newUserData);
         onComplete(newUserData);
       } else {
         // Clear any lingering session cache to ensure pending user cannot bypass
