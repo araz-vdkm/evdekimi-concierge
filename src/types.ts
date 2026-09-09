@@ -13,6 +13,7 @@ export type ScreenKey =
   | 'usermanagement'
   | 'maintenance'
   | 'minibar'
+  | 'minibarcatalog'
   | 'upsell'
   | 'reporting'
   | 'qatesting'
@@ -134,6 +135,18 @@ export interface MinibarItem {
   name: string;
   quantity: number;
   price: number;
+}
+
+// A single catalog entry: what's stocked in a villa's minibar, its shelf
+// location, unit price, and the "par" quantity (how many should be present
+// when fully stocked). This is the admin-editable source of truth that
+// Pre-Check-In / Post-Check-Out / Manual Entry all read from - previously
+// three separately hardcoded, drifting copies of the same list.
+export interface MinibarCatalogItem {
+  name: string;
+  location: string;
+  price: number;
+  parQty: number;
 }
 
 export interface MinibarRecord {

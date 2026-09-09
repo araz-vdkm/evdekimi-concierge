@@ -1,12 +1,14 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Coffee, ChevronLeft, Camera, Plus, Save, Trash2, Calendar, FileText, CheckCircle2, TrendingUp, TrendingDown, ArrowRight , Download, Pencil, X} from 'lucide-react';
 import { getAccessToken, getGoogleToken, db, isSuperUserEmail } from "../lib/auth";
 import { saveRecord, deleteRecord, clearFieldsWithAliases } from '../lib/db';
 import { collection, getDocs, query, orderBy, limit } from 'firebase/firestore';
 import { MinibarRecord, MinibarItem } from '../types';
 import { isReservationAssignedToUser } from '../lib/villaMatcher';
-import { useRoles, canEditScreen } from '../lib/roles';
+import { useRoles, canEditScreen, resolveRole, getScreenAccess } from '../lib/roles';
 import Toast from './Toast';
+import { useMinibarCatalog, getEffectiveMinibarItems } from '../lib/minibarCatalog';
+import MinibarCatalogManager from './MinibarCatalogManager';
 
 const getInitials = (name?: string) => {
   if (!name || !name.trim()) return '?';
@@ -19,32 +21,9 @@ interface MinibarDashboardProps {
   onBackToHome: () => void;
 }
 
-const PREDEFINED_ITEMS = [
-  { name: 'Organique Water', defaultPrice: 35000 },
-  { name: 'Pocari Sweat', defaultPrice: 25000 },
-  { name: 'Soda Water', defaultPrice: 25000 },
-  { name: 'Buavita Juice', defaultPrice: 25000 },
-  { name: 'Coca-Cola', defaultPrice: 25000 },
-  { name: 'Coca-Cola Zero', defaultPrice: 25000 },
-  { name: 'UC 1000 Vitamin C', defaultPrice: 30000 },
-  { name: 'Redbull', defaultPrice: 50000 },
-  { name: 'Snickers', defaultPrice: 30000 },
-  { name: 'Oatside Oatmilk', defaultPrice: 20000 },
-  { name: 'Bintang', defaultPrice: 50000 },
-  { name: 'Bali Hai', defaultPrice: 50000 },
-  { name: 'Kura Kura Hazy', defaultPrice: 90000 },
-  { name: 'Kura Kura Ale', defaultPrice: 90000 },
-  { name: 'Pringless', defaultPrice: 35000 },
-  { name: 'Roasted Peanut', defaultPrice: 25000 },
-  { name: 'Granobar', defaultPrice: 25000 },
-  { name: 'Oatside Cereal Bar', defaultPrice: 25000 },
-  { name: 'Roasted Almond', defaultPrice: 30000 },
-  { name: 'Salted Pistachio', defaultPrice: 35000 }
-];
-
 export default function MinibarDashboard({ currentUser, onBackToHome }: MinibarDashboardProps) {
   const isSupervisor = currentUser?.role === 'supervisor';
-  const [activeTab, setActiveTab] = useState<'tracking' | 'log'>(isSupervisor ? 'log' : 'tracking');
+  const [activeTab, setActiveTab] = useState<'tracking' | 'log' | 'catalog'>(isSupervisor ? 'log' : 'tracking');
   const [complexes, setComplexes] = useState<string[]>([]);
   const [unitsByComplex, setUnitsByComplex] = useState<Record<string, string[]>>({});
   const [recentGuests, setRecentGuests] = useState<any[]>([]);
@@ -72,6 +51,18 @@ export default function MinibarDashboard({ currentUser, onBackToHome }: MinibarD
     const canEdit = canEditScreen(currentUser, roles, 'minibar');
     const canDelete = canEdit;
   const [editFormData, setEditFormData] = useState<Record<string, { initial: number, postOut: number }>>({});
+  const minibarCatalog = useMinibarCatalog();
+  const canManageCatalog = getScreenAccess(currentUser, roles, 'minibarcatalog') === 'full';
+  // Effective item list for the villa currently selected in Manual Entry.
+  const manualEntryItems = useMemo(
+    () => getEffectiveMinibarItems(selectedComplex, selectedUnit, minibarCatalog),
+    [minibarCatalog.defaultItems, minibarCatalog.overridesByKey, selectedComplex, selectedUnit]
+  );
+  // Effective item list for whichever booking is open in the edit modal.
+  const editingReportItems = useMemo(
+    () => getEffectiveMinibarItems(editingReport?.complexName, editingReport?.unitName, minibarCatalog),
+    [minibarCatalog.defaultItems, minibarCatalog.overridesByKey, editingReport?.complexName, editingReport?.unitName]
+  );
 
   useEffect(() => {
     const fetchComplexes = async () => {
@@ -88,8 +79,11 @@ export default function MinibarDashboard({ currentUser, onBackToHome }: MinibarD
           const allowedComplexes = currentUser?.assignedComplexes || [];
           const allowedUnits = currentUser?.assignedUnits || [];
           
+          const resolvedRole = resolveRole(currentUser?.role, roles);
+          const isUnrestricted = isSuperUserEmail(currentUser?.email) || !!resolvedRole?.isSuperuser || resolvedRole?.key === 'admin' || resolvedRole?.key === 'supervisor';
+
           let filteredComplexes = allComplexes;
-          if (currentUser?.role !== 'admin' && allowedComplexes.length > 0) {
+          if (!isUnrestricted && allowedComplexes.length > 0) {
             filteredComplexes = allComplexes.filter((cName: string) => {
               const nameLower = (cName || '').toLowerCase().trim();
               return allowedComplexes.some((allowed: string) => {
@@ -104,7 +98,7 @@ export default function MinibarDashboard({ currentUser, onBackToHome }: MinibarD
           const uMap: Record<string, string[]> = {};
           filteredComplexes.forEach((cName: string) => {
             let units = allUnitsMap[cName] || [];
-            if (currentUser?.role !== 'admin' && allowedUnits.length > 0) {
+            if (!isUnrestricted && allowedUnits.length > 0) {
               units = units.filter((u: string) => {
                 const searchStr = (`${cName} - ${u}`).toLowerCase().trim();
                 const justUnitSearchStr = u.toLowerCase().trim();
@@ -123,7 +117,7 @@ export default function MinibarDashboard({ currentUser, onBackToHome }: MinibarD
       }
     };
     fetchComplexes();
-  }, [currentUser]);
+  }, [currentUser, roles]);
 
   
   const fetchRecentGuests = async () => {
@@ -142,7 +136,8 @@ export default function MinibarDashboard({ currentUser, onBackToHome }: MinibarD
           const dateA = a.createdAt || a.checkInDate || a.timestamp || '';
           const dateB = b.createdAt || b.checkInDate || b.timestamp || '';
           return new Date(dateB).getTime() - new Date(dateA).getTime();
-        });
+        })
+        .filter(g => isReservationAssignedToUser(g, currentUser, roles));
         
       setRecentGuests(recent);
     } catch (err) {
@@ -154,12 +149,13 @@ export default function MinibarDashboard({ currentUser, onBackToHome }: MinibarD
     if (activeTab === 'log') {
       fetchRecentGuests();
     }
-  }, [activeTab]);
+  }, [activeTab, currentUser, roles]);
 
   
   const handleEditReport = (report: any) => {
     const formData: Record<string, { initial: number, postOut: number, manual: Record<string, number> }> = {};
-    PREDEFINED_ITEMS.forEach(item => {
+    const itemsForReport = getEffectiveMinibarItems(report.complexName, report.unitName, minibarCatalog);
+    itemsForReport.forEach(item => {
       const preItem = report.preCheckIn?.minibarConsumed?.find((i:any) => i.name === item.name);
       const postItem = report.postCheckOut?.minibarConsumed?.find((i:any) => i.name === item.name);
       
@@ -186,10 +182,9 @@ export default function MinibarDashboard({ currentUser, onBackToHome }: MinibarD
       // 1. Pre Check In
       const hasPre = Object.values(editFormData).some((v: any) => v.initial > 0);
       if (editingReport.preCheckIn || hasPre) {
-        const newPreConsumed = PREDEFINED_ITEMS.map(item => ({
+        const newPreConsumed = editingReportItems.map(item => ({
           ...item,
-          qtyConsumed: editFormData[item.name]?.initial || 0,
-          price: item.defaultPrice
+          qtyConsumed: editFormData[item.name]?.initial || 0
         })).filter(i => i.qtyConsumed > 0);
         
         const updatedPre = { 
@@ -209,10 +204,9 @@ export default function MinibarDashboard({ currentUser, onBackToHome }: MinibarD
       // 2. Post Check Out
       const hasPost = Object.values(editFormData).some((v: any) => v.postOut > 0);
       if (editingReport.postCheckOut || hasPost) {
-        const newPostConsumed = PREDEFINED_ITEMS.map(item => ({
+        const newPostConsumed = editingReportItems.map(item => ({
           ...item,
-          qtyConsumed: editFormData[item.name]?.postOut || 0,
-          price: item.defaultPrice
+          qtyConsumed: editFormData[item.name]?.postOut || 0
         })).filter(i => i.qtyConsumed > 0);
         
         const updatedPost = { 
@@ -232,10 +226,10 @@ export default function MinibarDashboard({ currentUser, onBackToHome }: MinibarD
       // 3. Manual Logs
       if (editingReport.manualLogs?.length > 0) {
         for (const log of editingReport.manualLogs) {
-          const newManualItems = PREDEFINED_ITEMS.map(item => ({
+          const newManualItems = editingReportItems.map(item => ({
             name: item.name,
             quantity: editFormData[item.name]?.manual?.[log.id] || 0,
-            price: item.defaultPrice
+            price: item.price
           })).filter(i => i.quantity > 0);
           
           const updatedLog = { ...log, items: newManualItems };
@@ -312,7 +306,7 @@ export default function MinibarDashboard({ currentUser, onBackToHome }: MinibarD
         (r.preCheckIn?.minibarStock && r.preCheckIn.minibarStock.length > 0) ||
         (r.preCheckIn?.minibarConsumed && r.preCheckIn.minibarConsumed.length > 0) ||
         (r.postCheckOut?.minibarConsumed && r.postCheckOut.minibarConsumed.length > 0);
-      setReports(sortedReports.filter((r: any) => hasMinibarActivity(r) && isReservationAssignedToUser(r, currentUser)));
+      setReports(sortedReports.filter((r: any) => hasMinibarActivity(r) && isReservationAssignedToUser(r, currentUser, roles)));
     } catch (err) {
       console.warn("Failed to fetch reports", err);
     } finally {
@@ -333,9 +327,9 @@ export default function MinibarDashboard({ currentUser, onBackToHome }: MinibarD
       newItems[existingIndex].quantity += 1;
       setItems(newItems);
     } else {
-      const pItem = PREDEFINED_ITEMS.find(p => p.name === predefinedName);
+      const pItem = manualEntryItems.find(p => p.name === predefinedName);
       if (pItem) {
-        setItems([...items, { name: pItem.name, price: pItem.defaultPrice, quantity: 1 }]);
+        setItems([...items, { name: pItem.name, price: pItem.price, quantity: 1 }]);
       }
     }
   };
@@ -453,7 +447,7 @@ export default function MinibarDashboard({ currentUser, onBackToHome }: MinibarD
       "Total Earned Revenue (Rp)", "Consumed Items Summary"
     ];
     
-    const itemHeaders = PREDEFINED_ITEMS.map(item => item.name);
+    const itemHeaders = minibarCatalog.defaultItems.map(item => item.name);
     const allHeaders = [...baseHeaders, ...itemHeaders];
     
     csvContent += allHeaders.join(",") + "\n";
@@ -481,7 +475,7 @@ export default function MinibarDashboard({ currentUser, onBackToHome }: MinibarD
       
       const consumedItems: string[] = [];
       const itemQuantities: Record<string, number> = {};
-      PREDEFINED_ITEMS.forEach(item => { itemQuantities[item.name] = 0; });
+      minibarCatalog.defaultItems.forEach(item => { itemQuantities[item.name] = 0; });
 
       if (report.postCheckOut?.minibarConsumed) {
         report.postCheckOut.minibarConsumed.forEach((i:any) => {
@@ -523,7 +517,7 @@ export default function MinibarDashboard({ currentUser, onBackToHome }: MinibarD
         `"${consumedItemsStr}"`
       ];
 
-      const itemRow = PREDEFINED_ITEMS.map(item => itemQuantities[item.name]);
+      const itemRow = minibarCatalog.defaultItems.map(item => itemQuantities[item.name]);
       const allRow = [...baseRow, ...itemRow];
       
       csvContent += allRow.join(",") + "\n";
@@ -595,6 +589,20 @@ export default function MinibarDashboard({ currentUser, onBackToHome }: MinibarD
               <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-600 rounded-t-full"></div>
             )}
           </button>
+
+          {canManageCatalog && (
+            <button
+              onClick={() => setActiveTab('catalog')}
+              className={`pb-3 text-sm font-bold tracking-widest uppercase transition-colors relative ${
+                activeTab === 'catalog' ? 'text-blue-600' : 'text-slate-400 hover:text-slate-600'
+              }`}
+            >
+              Catalog
+              {activeTab === 'catalog' && (
+                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-600 rounded-t-full"></div>
+              )}
+            </button>
+          )}
 
           <button
             onClick={handleExportCSV}
@@ -906,7 +914,7 @@ export default function MinibarDashboard({ currentUser, onBackToHome }: MinibarD
               <h2 className="text-sm font-bold uppercase tracking-widest text-slate-400 mb-4">Consumed Items</h2>
               
               <div className="flex flex-wrap gap-2 mb-6">
-                {PREDEFINED_ITEMS.map(item => (
+                {manualEntryItems.map(item => (
                   <button
                     key={item.name}
                     type="button"
@@ -1065,7 +1073,7 @@ export default function MinibarDashboard({ currentUser, onBackToHome }: MinibarD
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {PREDEFINED_ITEMS.map(item => (
+                  {editingReportItems.map(item => (
                     <tr key={item.name} className="hover:bg-slate-50">
                       <td className="px-4 py-2 font-medium text-slate-700 text-xs bg-white sticky left-0 z-10 shadow-[1px_0_0_0_#f1f5f9]">{item.name}</td>
                       <td className="px-4 py-2 text-center bg-white">
@@ -1131,6 +1139,10 @@ export default function MinibarDashboard({ currentUser, onBackToHome }: MinibarD
             </div>
           </div>
         </div>
+      )}
+
+      {activeTab === 'catalog' && canManageCatalog && (
+        <MinibarCatalogManager complexes={complexes} unitsByComplex={unitsByComplex} />
       )}
 
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}

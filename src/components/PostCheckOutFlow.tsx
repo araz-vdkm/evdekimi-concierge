@@ -1,10 +1,11 @@
-import React, { useState, useRef, useCallback, useEffect } from 'react';
+import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import Webcam from 'react-webcam';
 import { Camera, CheckSquare, CheckCircle2, ChevronRight, X, Home as HomeIcon, Droplets, BedDouble, Bath, Upload, Coffee, RefreshCcw, ChevronLeft } from 'lucide-react';
 import { saveRecord } from '../lib/db';
 import { logActivity } from '../lib/activityLog';
 import { compressImage } from '../lib/utils';
 import { uploadImageToStorage } from '../lib/storage';
+import { useMinibarCatalog, getEffectiveMinibarItems } from '../lib/minibarCatalog';
 
 interface PostCheckOutFlowProps {
   onComplete: () => void;
@@ -46,31 +47,6 @@ const STEPS_CONFIG = [
   },
 ];
 
-const MINIBAR_ITEMS = [
-  { name: 'Organique Water', location: 'Fridge', price: 35000, parQty: 2 },
-  { name: 'Pocari Sweat', location: 'Fridge', price: 25000, parQty: 2 },
-  { name: 'Soda Water', location: 'Fridge', price: 25000, parQty: 2 },
-  { name: 'Buavita Juice', location: 'Fridge', price: 25000, parQty: 2 },
-  { name: 'Coca-Cola', location: 'Fridge', price: 25000, parQty: 2 },
-  { name: 'Coca-Cola Zero', location: 'Fridge', price: 25000, parQty: 2 },
-  { name: 'UC 1000 Vitamin C', location: 'Fridge', price: 30000, parQty: 2 },
-  { name: 'Redbull', location: 'Fridge', price: 50000, parQty: 2 },
-  { name: 'Snickers', location: 'Fridge', price: 30000, parQty: 2 },
-  { name: 'Oatside Oatmilk', location: 'Fridge', price: 20000, parQty: 2 },
-  { name: 'Bintang', location: 'Fridge', price: 50000, parQty: 2 },
-  { name: 'Bali Hai', location: 'Fridge', price: 50000, parQty: 2 },
-  { name: 'Kura Kura Hazy', location: 'Fridge', price: 90000, parQty: 2 },
-  { name: 'Kura Kura Ale', location: 'Fridge', price: 90000, parQty: 2 },
-  { name: 'Pringless', location: 'Shelf', price: 35000, parQty: 1 },
-  { name: 'Roasted Peanut', location: 'Shelf', price: 25000, parQty: 1 },
-  { name: 'Granobar', location: 'Shelf', price: 25000, parQty: 1 },
-  { name: 'Oatside Cereal Bar', location: 'Shelf', price: 25000, parQty: 1 },
-  { name: 'Roasted Almond', location: 'Shelf', price: 30000, parQty: 1 },
-  { name: 'Salted Pistachio', location: 'Shelf', price: 35000, parQty: 1 },
-  { name: 'Healthy Protein Bar', location: 'Shelf', price: 70000, parQty: 1 },
-  { name: 'Mie Sedap Cup Noodle', location: 'Shelf', price: 35000, parQty: 2 },
-];
-
 type SectionData = Record<string, { photos: string[] }>;
 
 export default function PostCheckOutFlow({ onComplete, initialBooking, currentUser }: PostCheckOutFlowProps) {
@@ -83,6 +59,11 @@ export default function PostCheckOutFlow({ onComplete, initialBooking, currentUs
   
   const [minibarPhoto, setMinibarPhoto] = useState<string | null>(null);
   const [minibarRemaining, setMinibarRemaining] = useState<Record<string, number>>({});
+  const minibarCatalog = useMinibarCatalog();
+  const MINIBAR_ITEMS = useMemo(
+    () => getEffectiveMinibarItems(initialBooking?.complexName, initialBooking?.unitName, minibarCatalog),
+    [minibarCatalog.defaultItems, minibarCatalog.overridesByKey, initialBooking?.complexName, initialBooking?.unitName]
+  );
 
   const [maintenanceNeeded, setMaintenanceNeeded] = useState(false);
   const [maintenanceNotes, setMaintenanceNotes] = useState('');
