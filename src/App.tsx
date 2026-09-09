@@ -25,7 +25,7 @@ import { useRoles, getScreenAccess, canViewScreen, canEditScreen, isSuperuserAcc
 
 // Accounts database removed
 
-import { syncAllRecordsToLocal, getRecord, saveRecord, saveConciergeUserSession } from './lib/db';
+import { syncAllRecordsToLocal, getRecord, saveRecord } from './lib/db';
 import { googleSignIn } from './lib/auth';
 import { loadVillaMappings } from './lib/villaMatcher';
 
@@ -56,7 +56,7 @@ export default function App() {
             setCurrentUser(userData as UserAccount);
             setNeedsAuth(false);
             setToken('dummy-token');
-            saveConciergeUserSession(userData);
+            localStorage.setItem('conciergeUser', JSON.stringify(userData));
           } else if (localSessionUser && !localSessionUser.isBlocked && (localSessionUser.isApproved === true || isSuperUserEmail(localSessionUser.email))) {
             // Keep active staff session when connecting external Gmail OAuth account
             setCurrentUser(localSessionUser);
@@ -208,7 +208,7 @@ export default function App() {
                 if (freshUser.isBlocked) alert('Your account has been suspended/blocked. Please contact support.');
               } else {
                 setCurrentUser(freshUser);
-                saveConciergeUserSession(freshUser);
+                localStorage.setItem('conciergeUser', JSON.stringify(freshUser));
               }
             }
           }).catch(() => {});
@@ -376,7 +376,7 @@ export default function App() {
         onRegisterClick={() => setShowRegister(true)} 
         onLoginSuccess={(user) => {
           localStorage.setItem('conciergeAuth', 'oauth');
-          saveConciergeUserSession(user);
+          localStorage.setItem('conciergeUser', JSON.stringify(user));
           setCurrentUser(user);
           setNeedsAuth(false);
           setToken('dummy-token');

@@ -1,3 +1,4 @@
+import { safeSetItem } from '../lib/safeStorage';
 import { deleteRecordWithAliases, deleteRecord } from "../lib/db";
 import { get as idbGet, set as idbSet, del as idbDel } from 'idb-keyval';
 import React, { useEffect, useState, useMemo } from 'react';
@@ -178,7 +179,7 @@ export default function Dashboard({ spreadsheetId, initialSearchTerm, initialTab
           if (!merged.bookingId) merged.bookingId = bId;
           preReportsMap.set(bId, merged);
           try {
-            localStorage.setItem(`pre_checkin_${bId}`, JSON.stringify(merged));
+            safeSetItem(`pre_checkin_${bId}`, JSON.stringify(merged));
           } catch(e) {}
         });
       }
@@ -194,7 +195,7 @@ export default function Dashboard({ spreadsheetId, initialSearchTerm, initialTab
           if (!merged.bookingId) merged.bookingId = bId;
           postReportsMap.set(bId, merged);
           try {
-            localStorage.setItem(`post_checkout_${bId}`, JSON.stringify(merged));
+            safeSetItem(`post_checkout_${bId}`, JSON.stringify(merged));
           } catch(e) {}
         });
       }
@@ -370,7 +371,7 @@ export default function Dashboard({ spreadsheetId, initialSearchTerm, initialTab
       setFetchError("Unable to connect to the server. Displaying offline data.");
     }
 
-    const filteredGuestsList = guestsList.filter(g => isReservationAssignedToUser(g, currentUser));
+    const filteredGuestsList = guestsList.filter(g => isReservationAssignedToUser(g, currentUser, roles));
     
     // Save consolidated guest list in IndexedDB
     try {
@@ -591,7 +592,7 @@ export default function Dashboard({ spreadsheetId, initialSearchTerm, initialTab
   }, [guests]);
 
   const filteredGuests = enrichedGuests.filter(g => {
-    if (!isReservationAssignedToUser(g, currentUser)) return false;
+    if (!isReservationAssignedToUser(g, currentUser, roles)) return false;
     return (
       g.fullName?.toLowerCase().includes(searchTerm.toLowerCase()) || 
       g.passportNumber?.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -646,7 +647,7 @@ export default function Dashboard({ spreadsheetId, initialSearchTerm, initialTab
 
 
   const filteredPreReports = preCheckInReports.filter(r => {
-    if (!isReservationAssignedToUser(r, currentUser)) return false;
+    if (!isReservationAssignedToUser(r, currentUser, roles)) return false;
     if (!searchTerm.trim()) return true;
     const term = searchTerm.toLowerCase();
     return (
@@ -661,7 +662,7 @@ export default function Dashboard({ spreadsheetId, initialSearchTerm, initialTab
   });
 
   const filteredPostReports = postCheckOutReports.filter(r => {
-    if (!isReservationAssignedToUser(r, currentUser)) return false;
+    if (!isReservationAssignedToUser(r, currentUser, roles)) return false;
     if (!searchTerm.trim()) return true;
     const term = searchTerm.toLowerCase();
     return (

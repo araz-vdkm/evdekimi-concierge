@@ -1,12 +1,14 @@
 /**
- * Villa and Complex Matcher Utility
- * Accurately normalizes and matches property and unit names between PMS (Hospara),
- * Google Sheets, and User Access Control (assignedComplexes / assignedUnits).
- */
+* Villa and Complex Matcher Utility
+* Accurately normalizes and matches property and unit names between PMS (Hospara),
+* Google Sheets, and User Access Control (assignedComplexes / assignedUnits).
+*/
 
 import { getDocs, collection } from "firebase/firestore";
 import { db } from "./auth"; // Assuming db is exported from auth or db.ts
 import { isSuperUserEmail } from './auth';
+import { resolveRole } from './roles';
+import { RoleDefinition } from '../types';
 
 export interface PropertyMatch {
   complexName: string;
@@ -27,13 +29,13 @@ export let KNOWN_PROPERTY_MAPPINGS: { pattern: RegExp; complex: string; unitPref
   { pattern: /DGS[-_ ]*V0*(\d+)/i, complex: "Dragon Stone Villas", unitPrefix: "DragonStone V" },
   // Dragon Stone Suites / Apartments
   { pattern: /DGS[-_ ]*A0*(\d+)/i, complex: "Dragon Stone Suites", unitPrefix: "DragonStone A" },
-  
+
   // Sacred Jungle Villas (Phase 1 & 2)
   { pattern: /SCJ[-_ ]*0*([1-3])V/i, complex: "Sacred Jungle Villas", unitPrefix: "SJ 1 Villa " },
   { pattern: /SCJ[-_ ]*0*4V/i, complex: "Sacred Jungle Villas", unit: "SJ 2 Villa 4 (2BDr)" },
   { pattern: /SCJ[-_ ]*0*5V/i, complex: "Sacred Jungle Villas", unit: "SJ 2 Villa 5 (3BDr)" },
   { pattern: /SCJ[-_ ]*0*6V/i, complex: "Sacred Jungle Villas", unit: "SJ 2 Villa 6 (1BDr)" },
-  
+
   // Sacred Jungle Suites / Apartments
   { pattern: /SCJ[-_ ]*0*1A/i, complex: "Sacred Jungle Suites", unit: "SJ Apart 1 (Mezanine)" },
   { pattern: /SCJ[-_ ]*0*2A/i, complex: "Sacred Jungle Suites", unit: "SJ Apart 2 (Mezanine)" },
@@ -43,7 +45,7 @@ export let KNOWN_PROPERTY_MAPPINGS: { pattern: RegExp; complex: string; unitPref
 
   // Sarang Apartments
   { pattern: /SRG[-_ ]*0*(\d+)/i, complex: "Sarang Aprt.", unitPrefix: "Sarang Apart. " },
-  
+
   // Sebelas Apartments
   { pattern: /SEB[-_ ]*0*9A/i, complex: "Sebelas Aprt.", unit: "Sebelas Aprt. 9 (2BDr)" },
   { pattern: /SEB[-_ ]*0*11A/i, complex: "Sebelas Aprt.", unit: "Sebelas Aprt. 11 (3BDr)" },
@@ -51,7 +53,7 @@ export let KNOWN_PROPERTY_MAPPINGS: { pattern: RegExp; complex: string; unitPref
 
   // Orchid Garden Villa
   { pattern: /OGV[-_ ]*V0*(\d+)/i, complex: "Orchid Garden Villa", unitPrefix: "Orchid Garden Villa " },
-  
+
   // Standalone Villas
   { pattern: /HTN[-_ ]*0*1|hutan/i, complex: "Villas", unit: "Hutan Villa" },
   { pattern: /RMH[-_ ]*0*1|rumah/i, complex: "Villas", unit: "Rumah Villa" },
@@ -71,8 +73,8 @@ let dynamicMappings: DynamicMapping[] = [];
 let isMappingsLoaded = false;
 
 /**
- * Load dynamic mappings from Firestore
- */
+* Load dynamic mappings from Firestore
+*/
 export async function loadVillaMappings() {
   if (isMappingsLoaded) return;
   try {
@@ -97,8 +99,8 @@ export async function loadVillaMappings() {
 }
 
 /**
- * Resolves raw reservation villa string / fields into normalized complex & unit names
- */
+* Resolves raw reservation villa string / fields into normalized complex & unit names
+*/
 export function resolveReservationProperty(res?: {
   villa?: string;
   complexName?: string;
@@ -125,7 +127,7 @@ export function resolveReservationProperty(res?: {
   if (isMappingsLoaded && dynamicMappings.length > 0) {
     for (const mapping of dynamicMappings) {
       if (
-        combined.toLowerCase().includes(mapping.guestyNickname.toLowerCase()) || 
+        combined.toLowerCase().includes(mapping.guestyNickname.toLowerCase()) ||
         rawVilla.toLowerCase() === mapping.guestyNickname.toLowerCase()
       ) {
         return {
@@ -166,8 +168,8 @@ export function resolveReservationProperty(res?: {
 }
 
 /**
- * Normalizes a string for comparison (strips punctuation, extra whitespace, lowercase)
- */
+* Normalizes a string for comparison (strips punctuation, extra whitespace, lowercase)
+*/
 function normalizeStr(str: string): string {
   return (str || '')
     .toLowerCase()
@@ -177,8 +179,8 @@ function normalizeStr(str: string): string {
 }
 
 /**
- * Determines whether two property or unit strings refer to the same property
- */
+* Determines whether two property or unit strings refer to the same property
+*/
 export function matchesProperty(candidate: string, target: string): boolean {
   if (!candidate || !target) return false;
   const cNorm = normalizeStr(candidate);
@@ -189,7 +191,7 @@ export function matchesProperty(candidate: string, target: string): boolean {
 
   const cWords = cNorm.split(' ').filter(w => w.length > 0);
   const tWords = tNorm.split(' ').filter(w => w.length > 0);
-  
+
   function getFreq(words: string[]) {
     const f: Record<string, number> = {};
     for (const w of words) {
@@ -217,8 +219,8 @@ export function matchesProperty(candidate: string, target: string): boolean {
 }
 
 /**
- * Checks if a reservation belongs to the complexes / units assigned to a user
- */
+* Checks if a reservation belongs to the complexes / units assigned to a user
+*/
 export function isReservationAssignedToUser(
   reservation?: { complexName?: string; unitName?: string; villa?: string; listingId?: string; complex?: string; unit?: string; villaName?: string } | null,
   currentUser?: {
@@ -226,7 +228,8 @@ export function isReservationAssignedToUser(
     email?: string;
     assignedComplexes?: string[];
     assignedUnits?: string[];
-  } | null
+  } | null,
+  roles: Record<string, RoleDefinition> = {}
 ): boolean {
   if (!currentUser) return true;
   if (!reservation) return false;
@@ -236,18 +239,16 @@ export function isReservationAssignedToUser(
 
   // Super administrator with no restrictions sees all
   const isSuper = isSuperUserEmail(currentUser.email);
-  if (isSuper && assignedComplexes.length === 0 && assignedUnits.length === 0) {
-    return true;
-  }
+  const role = resolveRole(currentUser.role, roles);
+  const isUnrestrictedRole = isSuper || !!role?.isSuperuser || role?.key === 'admin' || role?.key === 'supervisor';
 
-  // If user has admin or supervisor role and has not selected specific villas/units, show all
-  if ((currentUser.role === 'admin' || currentUser.role === 'supervisor') && assignedComplexes.length === 0 && assignedUnits.length === 0) {
+  if (isUnrestrictedRole && assignedComplexes.length === 0 && assignedUnits.length === 0) {
     return true;
   }
 
   // If no assignments configured, non-admins might not see any or see all
   if (assignedComplexes.length === 0 && assignedUnits.length === 0) {
-    return currentUser.role === 'admin' || currentUser.role === 'supervisor';
+    return isUnrestrictedRole;
   }
 
   const resolved = resolveReservationProperty(reservation);
@@ -264,8 +265,9 @@ export function isReservationAssignedToUser(
         matchesProperty(userUnit, `${resComplex} ${resUnit}`)
       );
     });
-    // Frontdesk users with specific unit assignments are strictly bounded to those units
-    if (currentUser.role === 'frontdesk') {
+    // Frontdesk (and any other custom/restricted role) users with specific unit
+    // assignments are strictly bounded to those units
+    if (currentUser.role === 'frontdesk' || !isUnrestrictedRole) {
       return unitMatch;
     }
     if (unitMatch) return true;

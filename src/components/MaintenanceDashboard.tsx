@@ -422,7 +422,7 @@ export default function MaintenanceDashboard({ currentUser, onBackToHome }: Main
   // Filtered tickets
   const filteredTickets = useMemo(() => {
     return tickets.filter(t => {
-      if (!isReservationAssignedToUser(t, currentUser)) return false;
+      if (!isReservationAssignedToUser(t, currentUser, roles)) return false;
       // Status filter
       if (statusFilter !== 'All' && t.status !== statusFilter) return false;
       // Severity filter

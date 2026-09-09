@@ -99,7 +99,7 @@ export default function UpsellDashboard({ currentUser, onBackToHome }: UpsellDas
             }
           });
 
-          const assigned = withUpsell.filter((g) => isReservationAssignedToUser(g, currentUser));
+          const assigned = withUpsell.filter((g) => isReservationAssignedToUser(g, currentUser, roles));
           assigned.sort((a, b) => new Date(b.checkInDate || 0).getTime() - new Date(a.checkInDate || 0).getTime());
           setGuests(assigned);
           setIsLoading(false);

@@ -1,3 +1,4 @@
+import { safeSetItem } from '../lib/safeStorage';
 import { get as idbGet, set as idbSet, del as idbDel } from 'idb-keyval';
 import React, { useState, useEffect } from 'react';
 import { UserPlus, CheckSquare, ClipboardCheck, LayoutDashboard, LogIn, LogOut, Clock, RefreshCw, Mail, Sparkles, CheckCircle, Wrench, Coffee } from 'lucide-react';
@@ -5,6 +6,7 @@ import { getAccessToken, getGoogleToken, googleSignIn, db } from "../lib/auth";
 import { saveRecord, syncAllRecordsToLocal } from '../lib/db';
 import { collection, onSnapshot, getDocs } from "firebase/firestore";
 import { isReservationAssignedToUser, resolveReservationProperty, matchesProperty } from '../lib/villaMatcher';
+import { useRoles } from '../lib/roles';
 
 interface HomeProps {
   onSelectView: (view: 'checkin' | 'pre_checkin' | 'post_checkout' | 'dashboard' | 'maintenance' | 'usermanagement' | 'minibar' | 'qatesting', data?: any) => void;
@@ -16,6 +18,7 @@ interface HomeProps {
 
 
 export default function Home({ onSelectView, isSuperuser, userRole, currentUser, canEdit = true }: HomeProps) {
+  const { roles } = useRoles();
   const [connectedConciergeEmail, setConnectedConciergeEmail] = useState<string>(() => {
     return localStorage.getItem("concierge_connected_email") || (localStorage.getItem("googleOAuthToken") ? "concierge@evdekimi.com" : "");
   });
@@ -76,7 +79,7 @@ export default function Home({ onSelectView, isSuperuser, userRole, currentUser,
     });
 
     // RBAC: Filter reservations by assigned complexes / units
-    const filteredList = normalized.filter(r => isReservationAssignedToUser(r, currentUser));
+    const filteredList = normalized.filter(r => isReservationAssignedToUser(r, currentUser, roles));
 
     // 1. Filter out unconfirmed, canceled, or inquiry reservations
     const confirmedOnly = filteredList.filter((r: any) => {
@@ -167,8 +170,8 @@ export default function Home({ onSelectView, isSuperuser, userRole, currentUser,
         const syncTime = data.lastSyncTime || new Date().toISOString();
 
         if (reservationsList.length > 0) {
-          localStorage.setItem('concierge_cached_reservations', JSON.stringify(reservationsList));
-          localStorage.setItem('concierge_last_sync_time', syncTime);
+          safeSetItem('concierge_cached_reservations', JSON.stringify(reservationsList));
+          safeSetItem('concierge_last_sync_time', syncTime);
           processReservations(reservationsList, syncTime);
         }
       }
@@ -940,7 +943,7 @@ export default function Home({ onSelectView, isSuperuser, userRole, currentUser,
                           const res = await googleSignIn();
                           if (res?.user?.email) {
                             const em = res.user.email;
-                            localStorage.setItem("concierge_connected_email", em);
+                            safeSetItem("concierge_connected_email", em);
                             setConnectedConciergeEmail(em);
                             setEmailSendResult({
                               success: true,
@@ -980,8 +983,8 @@ export default function Home({ onSelectView, isSuperuser, userRole, currentUser,
                           const res = await googleSignIn();
                           if (res?.accessToken) {
                             const email = res.user?.email || "concierge@evdekimi.com";
-                            localStorage.setItem("concierge_connected_email", email);
-                            localStorage.setItem("googleOAuthToken", res.accessToken);
+                            safeSetItem("concierge_connected_email", email);
+                            safeSetItem("googleOAuthToken", res.accessToken);
                             setConnectedConciergeEmail(email);
                             setEmailSendResult({
                               success: true,
@@ -1031,7 +1034,7 @@ export default function Home({ onSelectView, isSuperuser, userRole, currentUser,
                           if (googleRes?.accessToken) {
                             googleToken = googleRes.accessToken;
                             const connectedEm = googleRes.user?.email || "concierge@evdekimi.com";
-                            localStorage.setItem("concierge_connected_email", connectedEm);
+                            safeSetItem("concierge_connected_email", connectedEm);
                             setConnectedConciergeEmail(connectedEm);
                           } else {
                             throw new Error("Google authentication is required to send survey email.");
@@ -1063,7 +1066,7 @@ export default function Home({ onSelectView, isSuperuser, userRole, currentUser,
                             ...(surveyModalData.guestName ? { [surveyModalData.guestName.toLowerCase().trim()]: true } : {})
                           };
                           setSentSurveys(newSentSurveys);
-                          localStorage.setItem("sent_surveys", JSON.stringify(newSentSurveys));
+                          safeSetItem("sent_surveys", JSON.stringify(newSentSurveys));
                           
                           const surveyRecord = { 
                             sent: true, 

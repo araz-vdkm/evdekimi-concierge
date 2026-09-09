@@ -13,93 +13,6 @@ const withTimeout = <T>(promise: Promise<T>, ms: number = 15000): Promise<T> => 
   ]);
 };
 
-// Strips large base64 image/signature payloads from a record before it is
-// mirrored into localStorage, so the (much smaller) Firestore-backed cache
-// never blows the browser's per-origin storage quota. Firestore itself keeps
-// the full data — this only affects the local instant-UI cache copy.
-const scrubBase64ForCache = (collectionName: string, data: any): any => {
-  if (!data) return data;
-  if (collectionName === 'pre_checkin' || collectionName === 'post_checkout') {
-    const cacheData = JSON.parse(JSON.stringify(data));
-    if (cacheData.data) {
-      Object.keys(cacheData.data).forEach(sec => {
-        Object.keys(cacheData.data[sec]).forEach(item => {
-          if (cacheData.data[sec][item].photos) {
-            cacheData.data[sec][item].photos = cacheData.data[sec][item].photos.map((p: any) =>
-              (typeof p === 'string' && p.startsWith('data:image')) ? 'local-cache-omitted' : p
-            );
-          }
-        });
-      });
-    }
-    if (typeof cacheData.signature === 'string' && cacheData.signature.startsWith('data:image')) {
-      cacheData.signature = 'local-cache-omitted';
-    }
-    return cacheData;
-  }
-  if (collectionName === 'users' && data.photoBase64) {
-    return { ...data, photoBase64: 'local-cache-omitted' };
-  }
-  return data;
-};
-
-// Best-effort localStorage.setItem that never throws — quota-exceeded and
-// any other storage error are swallowed so a local cache write can never
-// take down a caller (e.g. break a login flow) that isn't expecting it.
-const safeSetItem = (key: string, value: string): boolean => {
-  try {
-    localStorage.setItem(key, value);
-    return true;
-  } catch (e) {
-    return false;
-  }
-};
-
-// One-time cleanup pass: re-scrubs any pre_checkin_*/post_checkout_*/users_*
-// cache entries that still hold raw base64 photos/signatures (e.g. written
-// before this fix, or via an older code path), freeing up quota in place
-// without touching Firestore or any other app state.
-export const pruneLocalStorageCache = (): number => {
-  let freed = 0;
-  try {
-    const keys: string[] = [];
-    for (let i = 0; i < localStorage.length; i++) {
-      const k = localStorage.key(i);
-      if (k && (k.startsWith('pre_checkin_') || k.startsWith('post_checkout_') || k.startsWith('users_'))) {
-        keys.push(k);
-      }
-    }
-    keys.forEach((key) => {
-      try {
-        const raw = localStorage.getItem(key);
-        if (!raw || !raw.includes('data:image')) return;
-        const collectionName = key.startsWith('users_') ? 'users' : (key.startsWith('pre_checkin_') ? 'pre_checkin' : 'post_checkout');
-        const parsed = JSON.parse(raw);
-        const scrubbed = scrubBase64ForCache(collectionName, parsed);
-        const newRaw = JSON.stringify(scrubbed);
-        freed += Math.max(0, raw.length - newRaw.length);
-        localStorage.setItem(key, newRaw);
-      } catch (e) {
-        // Leave anything unparsable/unwritable alone rather than risk data loss
-      }
-    });
-  } catch (e) {}
-  return freed;
-};
-
-// Saves the logged-in user's session to localStorage, and if the quota is
-// exceeded, prunes stale bloated cache entries and retries once rather than
-// letting the error propagate and abort whatever login/update flow called it.
-export const saveConciergeUserSession = (userData: any): boolean => {
-  const payload = JSON.stringify(userData);
-  if (safeSetItem('conciergeUser', payload)) return true;
-  console.warn('conciergeUser cache write failed (quota exceeded?), cleaning up and retrying.');
-  pruneLocalStorageCache();
-  if (safeSetItem('conciergeUser', payload)) return true;
-  console.warn('conciergeUser cache still failing after cleanup — continuing without local session cache.');
-  return false;
-};
-
 export const saveRecord = async (collectionName: string, id: string, data: any) => {
   try {
     const setDocPromise = setDoc(doc(db, collectionName, id), {
@@ -111,16 +24,36 @@ export const saveRecord = async (collectionName: string, id: string, data: any) 
 
     // Also update local storage for instant UI updates
     try {
-      // Strip large base64 payloads before caching to avoid quota errors
-      const cacheData = scrubBase64ForCache(collectionName, data);
+      // Create a shallow copy to strip large base64 payloads to avoid quota errors
+      let cacheData = data;
+      if (collectionName === 'pre_checkin' || collectionName === 'post_checkout') {
+          cacheData = JSON.parse(JSON.stringify(data));
+          if (cacheData.data) {
+             Object.keys(cacheData.data).forEach(sec => {
+                Object.keys(cacheData.data[sec]).forEach(item => {
+                   if (cacheData.data[sec][item].photos) {
+                      cacheData.data[sec][item].photos = cacheData.data[sec][item].photos.map((p: any) => 
+                         (typeof p === 'string' && p.startsWith('data:image')) ? 'local-cache-omitted' : p
+                      );
+                   }
+                });
+             });
+          }
+          if (typeof cacheData.signature === 'string' && cacheData.signature.startsWith('data:image')) {
+             cacheData.signature = 'local-cache-omitted';
+          }
+      }
+      if (collectionName === 'users' && cacheData.photoBase64) {
+          cacheData.photoBase64 = 'local-cache-omitted';
+      }
       
-      if (!safeSetItem(`${collectionName}_${id}`, JSON.stringify(cacheData))) {
-         console.warn("Storage quota exceeded even after scrubbing, attempting cleanup and retry.");
-         pruneLocalStorageCache();
-         safeSetItem(`${collectionName}_${id}`, JSON.stringify(cacheData));
+      try {
+         localStorage.setItem(`${collectionName}_${id}`, JSON.stringify(cacheData));
+      } catch(e) {
+         console.warn("Storage quota exceeded even after scrubbing, skipping local cache.");
       }
       if (collectionName === 'guest_reg') {
-         safeSetItem(`guest_reg_${id}`, 'true');
+         localStorage.setItem(`guest_reg_${id}`, 'true');
       }
     } catch (e) {
       console.warn('Local storage quota exceeded or unavailable');
@@ -161,12 +94,11 @@ export const saveRecord = async (collectionName: string, id: string, data: any) 
       console.warn(`Firestore compact retry failed for ${collectionName}/${id}:`, retryErr);
     }
 
-    // Continue with local storage (scrub base64 payloads here too, same as the primary path)
+    // Continue with local storage
     try {
-      const cacheData = scrubBase64ForCache(collectionName, data);
-      safeSetItem(`${collectionName}_${id}`, JSON.stringify(cacheData));
+      localStorage.setItem(`${collectionName}_${id}`, JSON.stringify(data));
       if (collectionName === 'guest_reg') {
-        safeSetItem(`guest_reg_${id}`, 'true');
+        localStorage.setItem(`guest_reg_${id}`, 'true');
       }
       window.dispatchEvent(new Event('local-storage-synced'));
     } catch (e) {
@@ -263,27 +195,21 @@ export const syncAllRecordsToLocal = async () => {
                 }
               } catch (e) {}
             }
-            // Scrub base64 photos/signatures before caching — this sync pass touches
-            // EVERY record in the collection (not just the one being edited) and
-            // writes up to 5 copies (main id + aliases), so leaving it unscrubbed is
-            // what was filling up localStorage and blocking later writes (e.g. login).
-            const cacheMerged = scrubBase64ForCache(col, merged);
-            const mergedJson = JSON.stringify(cacheMerged);
-            safeSetItem(key, mergedJson);
+            localStorage.setItem(key, JSON.stringify(merged));
             
             // Also store aliases for instant cross-device matching
             if (remoteData.confirmationCode) {
-              safeSetItem(`${col}_${remoteData.confirmationCode}`, mergedJson);
+              try { localStorage.setItem(`${col}_${remoteData.confirmationCode}`, JSON.stringify(merged)); } catch(e) {}
             }
             if (remoteData.bookingId && remoteData.bookingId !== id) {
-              safeSetItem(`${col}_${remoteData.bookingId}`, mergedJson);
+              try { localStorage.setItem(`${col}_${remoteData.bookingId}`, JSON.stringify(merged)); } catch(e) {}
             }
             if (remoteData.guestName) {
-              safeSetItem(`${col}_name_${remoteData.guestName.toLowerCase().trim()}`, mergedJson);
+              try { localStorage.setItem(`${col}_name_${remoteData.guestName.toLowerCase().trim()}`, JSON.stringify(merged)); } catch(e) {}
             }
             if (remoteData.unitName && (remoteData.checkInDate || remoteData.checkOutDate)) {
               const dKey = remoteData.checkInDate || remoteData.checkOutDate;
-              safeSetItem(`${col}_unit_${remoteData.unitName}_${dKey}`, mergedJson);
+              try { localStorage.setItem(`${col}_unit_${remoteData.unitName}_${dKey}`, JSON.stringify(merged)); } catch(e) {}
             }
           }
         });
