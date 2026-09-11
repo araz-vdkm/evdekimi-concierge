@@ -9,6 +9,7 @@ import {
   RefreshCcw, ClipboardCheck, ClipboardList, UserCheck,
   AlertTriangle, Info, TrendingUp, Landmark, Target, Percent, Home
 } from 'lucide-react';
+import DateRangePicker from './DateRangePicker';
 
 interface StaffKpiPanelProps {
   currentUser?: UserAccount | null;
@@ -44,13 +45,27 @@ interface Reservation {
   status?: string;
 }
 
-type KpiPeriod = 'today' | '7d' | '30d';
+type KpiPeriod = 'today' | '7d' | '30d' | 'month' | 'all' | 'custom';
 
 const KPI_PERIODS: { key: KpiPeriod; label: string }[] = [
   { key: 'today', label: 'Today' },
   { key: '7d', label: '7 Days' },
-  { key: '30d', label: '30 Days' }
+  { key: '30d', label: '30 Days' },
+  { key: 'month', label: 'This Month' },
+  { key: 'all', label: 'All Time' }
 ];
+
+// The live reservations feed (see server.ts syncReservations) only retains a
+// rolling window of roughly 7 days in the past through 30 days ahead, so
+// "should" counts outside that window can't be trusted - same constants and
+// caveat as ReportingDashboard.tsx.
+const FEED_WINDOW_DAYS_PAST = 7;
+const FEED_WINDOW_DAYS_FUTURE = 30;
+
+// Sentinel "start of time" used for the All Time preset, well before this
+// app or its data existed - simpler than threading a nullable start/end
+// through every downstream calculation below.
+const ALL_TIME_START = new Date(2000, 0, 1);
 
 const TYPE_META: { type: ActivityType; label: string; icon: React.ReactNode; dateField: 'checkInDate' | 'checkOutDate' }[] = [
   { type: 'registration', label: 'Registration', icon: <UserCheck className="w-3.5 h-3.5" />, dateField: 'checkInDate' },
@@ -64,12 +79,15 @@ function startOfToday(): Date {
   return d;
 }
 
-function rangeForPeriod(period: KpiPeriod): { start: Date; end: Date } {
+function rangeForPeriod(period: KpiPeriod, customRange: { start: Date; end: Date } | null): { start: Date; end: Date } {
+  if (period === 'custom' && customRange) return customRange;
   const end = new Date();
   end.setHours(23, 59, 59, 999);
+  if (period === 'all') return { start: ALL_TIME_START, end };
   const start = startOfToday();
   if (period === '7d') start.setDate(start.getDate() - 6);
   if (period === '30d') start.setDate(start.getDate() - 29);
+  if (period === 'month') start.setDate(1);
   return { start, end };
 }
 
@@ -126,6 +144,7 @@ export default function StaffKpiPanel({ currentUser, restrictToUid }: StaffKpiPa
   const [isLoadingReservations, setIsLoadingReservations] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [period, setPeriod] = useState<KpiPeriod>('7d');
+  const [customRange, setCustomRange] = useState<{ start: Date; end: Date } | null>(null);
   const [guests, setGuests] = useState<Guest[]>([]);
   const [upsellItemsMap, setUpsellItemsMap] = useState<Record<string, UpsellItemRecord>>({});
   const { roles } = useRoles();
@@ -208,7 +227,16 @@ export default function StaffKpiPanel({ currentUser, restrictToUid }: StaffKpiPa
     fetchReservations(true);
   };
 
-  const { start, end } = useMemo(() => rangeForPeriod(period), [period]);
+  const { start, end } = useMemo(() => rangeForPeriod(period, customRange), [period, customRange]);
+
+  // Whether the selected period is fully inside the reservations feed's
+  // rolling coverage window, i.e. whether "should" counts can be trusted.
+  const feedCoversRange = useMemo(() => {
+    const now = new Date();
+    const feedStart = new Date(now.getTime() - FEED_WINDOW_DAYS_PAST * 24 * 60 * 60 * 1000);
+    const feedEnd = new Date(now.getTime() + FEED_WINDOW_DAYS_FUTURE * 24 * 60 * 60 * 1000);
+    return start >= feedStart && end <= feedEnd;
+  }, [start, end]);
 
   // Confirmed-only, deduplicated - matches what the Operations Board (Home.tsx)
   // treats as real bookings, so "should" counts here agree with it.
@@ -358,6 +386,13 @@ export default function StaffKpiPanel({ currentUser, restrictToUid }: StaffKpiPa
               {p.label}
             </button>
           ))}
+          <DateRangePicker
+            start={customRange?.start ?? null}
+            end={customRange?.end ?? null}
+            isActive={period === 'custom'}
+            onApply={(s, e) => { setCustomRange({ start: s, end: e }); setPeriod('custom'); }}
+            accent="teal"
+          />
         </div>
         <button
           onClick={handleRefresh}
@@ -371,9 +406,18 @@ export default function StaffKpiPanel({ currentUser, restrictToUid }: StaffKpiPa
       <div className="bg-blue-50 border border-blue-200 rounded-xl p-3.5 mb-6 flex items-start gap-2.5">
         <Info className="w-4 h-4 text-blue-500 shrink-0 mt-0.5" />
         <div className="text-[12.5px] text-blue-800 leading-relaxed">
-          "Should" counts come from the live reservations feed, which only covers bookings from ~7 days ago through ~30 days ahead. Periods are limited to this window on purpose — older bookings aren't retained for comparison. "Done" counts reflect activity logged since this feature was enabled, so any check-ins/check-outs completed earlier won't show here. Each card below is a villa's outcome — it reflects everyone who worked on that villa, not just one person.
+          "Should" counts come from the live reservations feed, which only covers bookings from ~7 days ago through ~30 days ahead. "Done" counts reflect activity logged since this feature was enabled, so any check-ins/check-outs completed earlier won't show here. Each card below is a villa's outcome — it reflects everyone who worked on that villa, not just one person.
         </div>
       </div>
+
+      {!feedCoversRange && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-3.5 mb-6 flex items-start gap-2.5">
+          <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+          <div className="text-[12.5px] text-amber-800 leading-relaxed">
+            The selected period reaches outside the ~7-day-past / ~30-day-ahead window the live reservations feed covers, so "should" counts for dates outside that window will read as 0 instead of the real expected count.
+          </div>
+        </div>
+      )}
 
       {isLoading && staffStats.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-20 text-slate-400 gap-4 bg-white border border-slate-200 rounded-2xl">

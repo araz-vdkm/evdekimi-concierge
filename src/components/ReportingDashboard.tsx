@@ -22,6 +22,7 @@ import {
 import * as XLSX from 'xlsx';
 import UpsellAnalyticsPanel from './UpsellAnalyticsPanel';
 import StaffKpiPanel from './StaffKpiPanel';
+import DateRangePicker from './DateRangePicker';
 
 interface ReportingDashboardProps {
   currentUser?: UserAccount | null;
@@ -475,21 +476,17 @@ export default function ReportingDashboard({ currentUser, onBackToHome }: Report
           ))}
         </div>
         <div className="w-px h-5 bg-slate-200 hidden sm:block" />
-        <div className="flex items-center gap-2">
-          <input
-            type="date"
-            value={customFrom}
-            onChange={(e) => { setCustomFrom(e.target.value); setPreset('custom'); }}
-            className="h-9 px-3 bg-slate-50 border border-slate-300 rounded-lg text-sm text-slate-700 font-medium focus:outline-none focus:ring-2 focus:ring-blue-500"
-          />
-          <span className="text-slate-400 text-xs font-bold">—</span>
-          <input
-            type="date"
-            value={customTo}
-            onChange={(e) => { setCustomTo(e.target.value); setPreset('custom'); }}
-            className="h-9 px-3 bg-slate-50 border border-slate-300 rounded-lg text-sm text-slate-700 font-medium focus:outline-none focus:ring-2 focus:ring-blue-500"
-          />
-        </div>
+        <DateRangePicker
+          start={customFrom ? new Date(customFrom + 'T00:00:00') : null}
+          end={customTo ? new Date(customTo + 'T23:59:59') : null}
+          isActive={preset === 'custom'}
+          onApply={(s, e) => {
+            setCustomFrom(toDateInputValue(s));
+            setCustomTo(toDateInputValue(e));
+            setPreset('custom');
+          }}
+          accent="blue"
+        />
         <button
           onClick={handleBackfill}
           disabled={isBackfilling}
