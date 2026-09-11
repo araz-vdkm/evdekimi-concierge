@@ -1,7 +1,7 @@
 import { get as idbGet, set as idbSet, del as idbDel } from 'idb-keyval';
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import Webcam from 'react-webcam';
-import { Camera, ScanFace, FileText, CheckCircle2, ChevronRight, RefreshCcw, Calendar, Users, Building, ChevronLeft } from 'lucide-react';
+import { Camera, ScanFace, FileText, CheckCircle2, ChevronRight, RefreshCcw, Calendar, Users, Building, ChevronLeft, AlertTriangle } from 'lucide-react';
 import { getAccessToken, getGoogleToken } from "../lib/auth";
 import { Guest, QuestionnaireAnswers } from '../types';
 
@@ -22,6 +22,7 @@ import { uploadImageToStorage } from '../lib/storage';
 export default function CheckInFlow({ spreadsheetId, onComplete, initialBooking, currentUser }: CheckInFlowProps) {
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [submitError, setSubmitError] = useState('');
   
   // Scanned Data
   const [guestsDetails, setGuestsDetails] = useState<Partial<Guest & { photoBase64?: string; existingId?: string; existingPhotoUrl?: string; gender?: string }>[]>([
@@ -246,15 +247,25 @@ export default function CheckInFlow({ spreadsheetId, onComplete, initialBooking,
 
   const handleCompleteQuestionnaire = async () => {
     setIsProcessing(true);
+    setSubmitError('');
     try {
       const token = await getAccessToken();
+      // Only the guest's profile fields matter for the upsell prompt - each
+      // entry also carries a full base64-encoded passport photo
+      // (photoBase64/existingPhotoUrl), and embedding those in the AI prompt
+      // as text balloons it to several MB for a multi-guest booking (e.g. one
+      // booking name covering several units), which reliably fails/times out.
+      // That used to show "Analyzing..." and then silently reset with no
+      // error - stripping the photos here fixes the root cause, and the
+      // catch below now at least tells the user something went wrong.
+      const guestDetailsForUpsell = guestsDetails.map(({ photoBase64, existingPhotoUrl, ...rest }) => rest);
       const res = await fetch('/api/analyze-upsell', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`, "x-google-oauth-token": getGoogleToken()
         },
-        body: JSON.stringify({ guestDetails: guestsDetails, answers })
+        body: JSON.stringify({ guestDetails: guestDetailsForUpsell, answers })
       });
       
       if (!res.ok) throw new Error("Failed to generate upsell");
@@ -264,6 +275,7 @@ export default function CheckInFlow({ spreadsheetId, onComplete, initialBooking,
     } catch (err) {
       console.warn(err);
       console.error('Error processing data');
+      setSubmitError("Couldn't generate the guest profile. Please check your connection and try again - if it keeps happening, use Complete Check-In anyway and let us know.");
     } finally {
       setIsProcessing(false);
     }
@@ -271,6 +283,7 @@ export default function CheckInFlow({ spreadsheetId, onComplete, initialBooking,
 
   const handleFinalSubmit = async () => {
     setIsProcessing(true);
+    setSubmitError('');
     try {
       const token = await getAccessToken();
       
@@ -378,16 +391,21 @@ export default function CheckInFlow({ spreadsheetId, onComplete, initialBooking,
     } catch (err: any) {
       console.warn(err);
       console.error('Error saving check-in');
-      await logActivity({
-        type: 'registration',
-        status: 'failed',
-        guestName: initialBooking?.guestName || guestsDetails[0]?.fullName || '',
-        bookingId: initialBooking?.confirmationCode || initialBooking?.id || '',
-        complexName: booking.complexName,
-        unitName: booking.unitName,
-        submittedBy: currentUser?.username || currentUser?.email || 'Staff',
-        errorMessage: err?.message || String(err)
-      });
+      setSubmitError("Couldn't finish saving this check-in. Please check your connection and try Complete Check-In again - your entered details are still filled in above.");
+      try {
+        await logActivity({
+          type: 'registration',
+          status: 'failed',
+          guestName: initialBooking?.guestName || guestsDetails[0]?.fullName || '',
+          bookingId: initialBooking?.confirmationCode || initialBooking?.id || '',
+          complexName: booking.complexName,
+          unitName: booking.unitName,
+          submittedBy: currentUser?.username || currentUser?.email || 'Staff',
+          errorMessage: err?.message || String(err)
+        });
+      } catch (logErr) {
+        console.warn('Failed to log the registration failure itself:', logErr);
+      }
     } finally {
       setIsProcessing(false);
     }
@@ -765,6 +783,13 @@ export default function CheckInFlow({ spreadsheetId, onComplete, initialBooking,
             </div>
           </div>
           
+          {submitError && (
+            <div className="mt-4 flex items-start gap-2.5 p-3 bg-red-50 border border-red-200 rounded-lg text-xs font-medium text-red-700">
+              <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+              {submitError}
+            </div>
+          )}
+
           <div className="mt-4 flex gap-4">
             <button
               onClick={() => setStep(2)}
@@ -812,6 +837,13 @@ export default function CheckInFlow({ spreadsheetId, onComplete, initialBooking,
               ) : "No specific upsell opportunities identified."}
             </div>
           </div>
+
+          {submitError && (
+            <div className="flex items-start gap-2.5 p-3 bg-red-50 border border-red-200 rounded-lg text-xs font-medium text-red-700">
+              <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+              {submitError}
+            </div>
+          )}
 
           <div className="flex gap-4">
             <button

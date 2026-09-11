@@ -1030,9 +1030,19 @@ const generateWithRetry = async (aiInstance: any, params: any, maxRetries = 5) =
     try {
       const { guestDetails, answers } = req.body;
 
+      // Defensive: strip any base64 photo fields before they ever reach the
+      // prompt. The client is expected to already leave these out, but a
+      // stray photoBase64/existingPhotoUrl here would balloon the prompt to
+      // several MB of embedded image data per guest and reliably fail/time
+      // out - especially for a multi-guest booking (e.g. several units under
+      // one booking name).
+      const sanitizedGuestDetails = Array.isArray(guestDetails)
+        ? guestDetails.map(({ photoBase64, existingPhotoUrl, photo, ...rest }: any) => rest)
+        : guestDetails;
+
       const prompt = `Based on the following guest details and their answers to our questionnaire, suggest 1 to 3 personalized upsell opportunities for our hotel concierge service. Keep it brief and actionable.
 Guest Details:
-${JSON.stringify(guestDetails, null, 2)}
+${JSON.stringify(sanitizedGuestDetails, null, 2)}
 Answers:
 ${JSON.stringify(answers, null, 2)}
 
